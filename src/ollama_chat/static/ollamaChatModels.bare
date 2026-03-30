@@ -455,6 +455,49 @@ async function ollamaChatModelsDownloadPage(args):
         ] \
     })
 
+    # ── Pull any model ──
+    elementModelRender({ \
+        'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;'}, \
+        'elem': [ \
+            { \
+                'html': 'input', \
+                'attr': { \
+                    'type': 'text', 'id': 'oc-pull-model', \
+                    'placeholder': 'e.g. qwen2.5-coder:7b', \
+                    'autocomplete': 'off', \
+                    'style': 'flex: 1; min-width: 200px; padding: 8px 12px; background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 8px; color: var(--oc-text); font-size: 0.9rem; font-family: inherit; outline: none; box-sizing: border-box;', \
+                    'onfocus': "this.style.borderColor='var(--oc-accent)';", \
+                    'onblur': "this.style.borderColor='var(--oc-border)';" \
+                } \
+            }, \
+            { \
+                'html': 'button', \
+                'attr': { \
+                    'type': 'button', \
+                    'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: none; background: var(--oc-accent); color: white; font-size: 0.85rem; font-weight: 500; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                    'onmouseover': "this.style.background='#0a7a5e';", \
+                    'onmouseout': "this.style.background=document.documentElement.getAttribute('data-theme')==='light'?'#0d8f6e':'#10a37f';" \
+                }, \
+                'callback': {'click': ollamaChatModelsOnPullCustom}, \
+                'elem': [ollamaChatSVG(ollamaChatIconDownload, '14'), {'html': 'span', 'elem': {'text': 'Pull'}}] \
+            }, \
+            { \
+                'html': 'button', \
+                'attr': { \
+                    'type': 'button', \
+                    'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.85rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                    'onmouseover': ollamaChatHoverBorderOn, \
+                    'onmouseout': ollamaChatHoverBorderOut, \
+                    'onclick': "var q=document.getElementById('oc-pull-model').value.trim();window.open('https://ollama.com/search'+(q?'?q='+encodeURIComponent(q):''),'_blank','noopener');" \
+                }, \
+                'elem': [ \
+                    ollamaChatSVG([{'svg': 'circle', 'attr': {'cx': '11', 'cy': '11', 'r': '8'}}, {'svg': 'line', 'attr': {'x1': '21', 'y1': '21', 'x2': '16.65', 'y2': '16.65'}}], '14'), \
+                    {'html': 'span', 'elem': {'text': 'Search on Ollama'}} \
+                ] \
+            } \
+        ] \
+    })
+
     # ── Filter chips ──
     chipActive = 'display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--oc-accent); background: var(--oc-accent-bg); color: var(--oc-accent); font-size: 0.78rem; font-weight: 500; text-decoration: none; white-space: nowrap;'
     chipInactive = 'display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.78rem; text-decoration: none; white-space: nowrap;'
@@ -651,4 +694,12 @@ endfunction
 async function ollamaChatModelsOnDownload(modelID):
     systemFetch({'url': 'downloadModel', 'body': jsonStringify({'model': modelID})})
     windowSetLocation(argsURL(ollamaChatArguments, {'view': 'models'}))
+endfunction
+
+
+async function ollamaChatModelsOnPullCustom():
+    modelID = stringTrim(documentInputValue('oc-pull-model'))
+    if modelID != '':
+        ollamaChatModelsOnDownload(modelID)
+    endif
 endfunction
