@@ -49,7 +49,9 @@ class ChatManager():
                 options = None
                 with chat.app.config() as config:
                     conversation = config_conversation(config, chat.conversation_id)
-                    model = conversation['model']
+                    model = config.get('model') or conversation['model']
+                    if model != conversation['model']:
+                        conversation['model'] = model
 
                     # Read and parse model options
                     raw_options = config.get('modelOptions') or {}

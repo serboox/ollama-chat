@@ -148,6 +148,67 @@ class TestChatManager(unittest.TestCase):
                 self.assertEqual(json.load(config_fh), expected_config)
 
 
+    def test_chat_fn_model_switch(self):
+        # Conversation was created with 'llm', but global model is switched to 'llm2'.
+        # The reply must use 'llm2' and update conversation['model'] accordingly.
+        test_files = [
+            ('ollama-chat.json', json.dumps({
+                'conversations': [
+                    {'id': 'conv1', 'model': 'llm', 'title': 'Conversation 1', 'exchanges': []}
+                ]
+            })),
+            ('ollama-chat-settings.json', json.dumps({'model': 'llm2'}))
+        ]
+        with create_test_files(test_files) as temp_dir, \
+             unittest.mock.patch('threading.Thread'), \
+             unittest.mock.patch('urllib3.PoolManager') as mock_pool_manager:
+
+            mock_show_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_show_response.status = 200
+            mock_show_response.json.return_value = {'capabilities': []}
+
+            mock_chat_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_chat_response.status = 200
+            mock_chat_response.read_chunked.return_value = [
+                json.dumps({'message': {'content': 'Hi there!'}}).encode('utf-8')
+            ]
+
+            mock_pool_manager_instance = mock_pool_manager.return_value
+            mock_pool_manager_instance.request.side_effect = [mock_show_response, mock_chat_response]
+
+            config_path = os.path.join(temp_dir, 'ollama-chat.json')
+            app = OllamaChat(config_path)
+            chat_manager = ChatManager(app, 'conv1', ['Hello'])
+            app.chats['conv1'] = chat_manager
+
+            ChatManager.chat_thread_fn(chat_manager)
+
+            # Verify that 'llm2' (global model) was used, not 'llm' (conversation model)
+            self.assertListEqual(
+                mock_pool_manager_instance.request.call_args_list,
+                [
+                    unittest.mock.call('POST', 'http://127.0.0.1:11434/api/show', json={'model': 'llm2'}, retries=0),
+                    unittest.mock.call(
+                        'POST',
+                        'http://127.0.0.1:11434/api/chat',
+                        json={
+                            'model': 'llm2',
+                            'messages': [{'role': 'user', 'content': 'Hello', 'images': None}],
+                            'stream': True,
+                            'think': False
+                        },
+                        preload_content=False,
+                        retries=0
+                    )
+                ]
+            )
+
+            # Verify that conversation['model'] was updated to the new global model
+            with app.config() as config:
+                conv = next(c for c in config['conversations'] if c['id'] == 'conv1')
+                self.assertEqual(conv['model'], 'llm2')
+
+
     def test_chat_fn_thinking(self):
         test_files = [
             ('ollama-chat.json', json.dumps({
