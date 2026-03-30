@@ -30,3 +30,7 @@ Opens a browser window with the chat interface. A config file `ollama-chat.json`
 
 - [Ollama Chat API](https://craigahobbs.github.io/ollama-chat/api.html)
 - [File Format Reference](https://craigahobbs.github.io/ollama-chat/api.html#var.vName='OllamaChatConfig')
+
+## Credits
+
+Based on [ollama-chat](https://github.com/craigahobbs/ollama-chat) by [Craig A. Hobbs](https://github.com/craigahobbs), licensed under the [MIT License](LICENSE).
