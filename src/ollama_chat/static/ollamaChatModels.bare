@@ -264,6 +264,17 @@ async function ollamaChatModelsPage(args):
                                         }, \
                                         'elem': [ollamaChatSVG(ollamaChatIconCheck, '14'), {'html': 'span', 'elem': {'text': if(isActive, tr(lang, 'reconfigure'), tr(lang, 'use'))}}] \
                                     }), \
+                                    if(isActive && !inConfig, { \
+                                        'html': 'button', \
+                                        'attr': { \
+                                            'type': 'button', \
+                                            'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: none; background: #ef4444; color: white; font-size: 0.875rem; font-weight: 500; cursor: pointer; font-family: inherit;', \
+                                            'onmouseover': "this.style.background='#dc2626';", \
+                                            'onmouseout': "this.style.background='#ef4444';" \
+                                        }, \
+                                        'callback': {'click': ollamaChatSidebarOnClearModel}, \
+                                        'elem': [ollamaChatSVG([{'svg': 'line', 'attr': {'x1': '18', 'y1': '6', 'x2': '6', 'y2': '18'}}, {'svg': 'line', 'attr': {'x1': '6', 'y1': '6', 'x2': '18', 'y2': '18'}}], '14'), {'html': 'span', 'elem': {'text': tr(lang, 'deactivate')}}] \
+                                    }), \
                                     infoLink, \
                                     ollamaChatIconBtn(ollamaChatIconRefresh, tr(lang, 'update_model'), updateFn), \
                                     { \

@@ -42,6 +42,7 @@ ollamaChatI18n = { \
         'installed_models': 'Installed Models', \
         'use': 'Use', \
         'reconfigure': 'Reconfigure', \
+        'deactivate': 'Deactivate', \
         'activate_model': 'Start Chat', \
         'cancel': 'Cancel', \
         'update': 'Update', \
@@ -132,6 +133,7 @@ ollamaChatI18n = { \
         'installed_models': 'Установленные модели', \
         'use': 'Выбрать', \
         'reconfigure': 'Настроить', \
+        'deactivate': 'Деактивировать', \
         'activate_model': 'Начать чат', \
         'cancel': 'Отмена', \
         'update': 'Обновить', \
@@ -221,6 +223,7 @@ ollamaChatI18n = { \
         'installed_models': 'Installierte Modelle', \
         'use': 'Nutzen', \
         'reconfigure': 'Konfigurieren', \
+        'deactivate': 'Deaktivieren', \
         'activate_model': 'Chat starten', \
         'cancel': 'Abbrechen', \
         'update': 'Aktualisieren', \
