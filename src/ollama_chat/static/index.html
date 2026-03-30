@@ -5,7 +5,9 @@
         <meta charset="UTF-8">
         <meta name="description" content="Chat with local large language models">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦙</text></svg>">
         <link rel="stylesheet" href="./markdown-up/app.css">
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 
         <!-- Preloads -->
         <link rel="modulepreload" href="./markdown-up/bare-script/lib/data.js" as="script">
@@ -33,10 +35,1433 @@
         <link rel="modulepreload" href="./markdown-up/schema-markdown/lib/typeModel.js" as="script">
         <link rel="preload" href="./markdown-up/app.css" as="style">
         <link rel="preload" href="./markdown-up/markdown-model/static/markdown-model.css" as="style">
+        <style>
+            :root {
+                /* Framework dark mode */
+                --markdown-model-dark-mode: 1;
+                --markdown-model-color-background: #212121;
+                --markdown-model-color-foreground: #ececec;
+                --markdown-model-color-link: #10a37f;
+                --markdown-model-color-background-pre: #1e1e1e;
+                --markdown-model-color-background-code: #2a2a2a;
+                --markdown-model-color-border: #3f3f3f;
+                --markdown-model-font-size: 15px;
+                --markdown-model-line-height: 1.65em;
+
+                /* Custom app color variables */
+                --oc-bg: #212121;
+                --oc-bg-2: #2a2a2a;
+                --oc-bg-3: #1e1e1e;
+                --oc-bg-hover: #333333;
+                --oc-sidebar-bg: #171717;
+                --oc-sidebar-hover: #2a2a2a;
+                --oc-sidebar-active: #333333;
+                --oc-sidebar-border: #252525;
+                --oc-input-bar: #2f2f2f;
+
+                --oc-text: #ececec;
+                --oc-text-2: #c0c0d0;
+                --oc-text-3: #8888a0;
+                --oc-text-4: #606070;
+
+                --oc-border: #3f3f3f;
+                --oc-border-2: #2a2a2a;
+
+                --oc-accent: #10a37f;
+                --oc-accent-hover: #0d8f6e;
+                --oc-accent-bg: rgba(16,163,127,0.12);
+                --oc-accent-active: #1a2e27;
+
+                --oc-bubble: #2f2f2f;
+                --oc-bubble-border: #3f3f3f;
+
+                --oc-danger: #ef4444;
+                --oc-danger-bg: rgba(239,68,68,0.12);
+            }
+            /* Light theme overrides (sidebar stays dark) */
+            [data-theme="light"] {
+                --markdown-model-dark-mode: 0;
+                --markdown-model-color-background: #f0f2f5;
+                --markdown-model-color-foreground: #111827;
+                --markdown-model-color-link: #0d8f6e;
+                --markdown-model-color-background-pre: #e8ecf2;
+                --markdown-model-color-background-code: #dde2ea;
+                --markdown-model-color-border: #b8c4d0;
+
+                --oc-bg: #f0f2f5;
+                --oc-bg-2: #ffffff;
+                --oc-bg-3: #e8ecf2;
+                --oc-bg-hover: #dde2ea;
+
+                --oc-input-bar: #e4e8ef;
+
+                --oc-text: #111827;
+                --oc-text-2: #374151;
+                --oc-text-3: #6b7280;
+                --oc-text-4: #9ca3af;
+
+                --oc-border: #b8c4d0;
+                --oc-border-2: #d1d8e0;
+
+                --oc-accent: #0d8f6e;
+                --oc-accent-hover: #0b7d60;
+                --oc-accent-bg: rgba(13,143,110,0.12);
+                --oc-accent-active: rgba(13,143,110,0.1);
+
+                --oc-bubble: #d8dde8;
+                --oc-bubble-border: #b8c4d0;
+            }
+            [data-theme="light"] body { background-color: #f0f2f5 !important; color: #111827 !important; }
+            [data-theme="light"] h1, [data-theme="light"] h2, [data-theme="light"] h3, [data-theme="light"] h4 { color: #111827 !important; }
+            [data-theme="light"] a { color: #0d8f6e; }
+            [data-theme="light"] pre, [data-theme="light"] code { background-color: #e8ecf2 !important; color: #111827 !important; border-color: #b8c4d0 !important; }
+            [data-theme="light"] pre > code { background: transparent !important; }
+            [data-theme="light"] th, [data-theme="light"] td { border-color: #b8c4d0 !important; color: #111827 !important; }
+            [data-theme="light"] th { background-color: #e4e8ef !important; }
+            [data-theme="light"] hr { border-top-color: #b8c4d0 !important; }
+            [data-theme="light"] input[type="text"], [data-theme="light"] textarea, [data-theme="light"] input:not([type]), [data-theme="light"] input[type="number"] { background-color: #ffffff !important; color: #111827 !important; border-color: #b8c4d0 !important; }
+            [data-theme="light"] blockquote { border-left-color: #b8c4d0 !important; color: #6b7280 !important; }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0 !important;
+                padding: 1.5rem 2rem 1.5rem calc(260px + 2rem) !important;
+                font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+                background-color: var(--oc-bg) !important;
+                color: var(--oc-text) !important;
+                min-height: 100vh;
+            }
+            ::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+            ::-webkit-scrollbar-track {
+                background: #171717;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: #3f3f3f;
+                border-radius: 3px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: #555;
+            }
+            h1, h2, h3, h4, h5, h6 {
+                color: var(--oc-text) !important;
+            }
+            a {
+                color: var(--oc-accent);
+            }
+            a:hover {
+                color: var(--oc-accent-hover);
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+            }
+            th, td {
+                border: 1px solid var(--oc-border) !important;
+                padding: 0.5em 0.75em !important;
+                color: var(--oc-text) !important;
+            }
+            th {
+                background-color: var(--oc-input-bar) !important;
+            }
+            pre, code {
+                background-color: var(--oc-input-bar) !important;
+                border: 1px solid var(--oc-border);
+                border-radius: 6px;
+                color: var(--oc-text) !important;
+            }
+            pre {
+                padding: 1em !important;
+                overflow-x: auto;
+            }
+            code {
+                padding: 0.1em 0.3em;
+            }
+            pre code {
+                border: none;
+                padding: 0;
+                background: transparent !important;
+            }
+            input[type="text"], textarea, input:not([type]) {
+                background-color: var(--oc-input-bar) !important;
+                color: var(--oc-text) !important;
+                border: 1px solid var(--oc-border) !important;
+                border-radius: 8px !important;
+                padding: 0.5em 0.75em !important;
+                font-family: inherit !important;
+                font-size: inherit !important;
+                outline: none !important;
+            }
+            input[type="text"]:focus, textarea:focus, input:not([type]):focus {
+                border-color: var(--oc-accent) !important;
+            }
+            button {
+                font-family: inherit !important;
+            }
+            /* ── Sidebar isolation from light theme ─────────────── */
+            /* Framework resets color on all elements; sidebar always stays dark */
+            .oc-sidebar {
+                color: #c0c0d0 !important;
+            }
+            .oc-sidebar div,
+            .oc-sidebar span,
+            .oc-sidebar a,
+            .oc-sidebar button,
+            .oc-sidebar p,
+            .oc-sidebar li {
+                color: inherit !important;
+            }
+            /* Sidebar conversation action buttons: hidden on desktop until hover */
+            @media (min-width: 768px) {
+                .oc-conv-del-btn { opacity: 0; transition: opacity 0.15s; }
+                .oc-sidebar a:hover .oc-conv-del-btn { opacity: 1; }
+                .oc-conv-edit-btn { opacity: 0; transition: opacity 0.15s; }
+                .oc-sidebar a:hover .oc-conv-edit-btn { opacity: 1; }
+            }
+            /* Expand button — shown only when sidebar is collapsed on desktop */
+            .oc-expand-btn { display: none !important; }
+            @media (min-width: 768px) {
+                html.oc-collapsed .oc-expand-btn { display: flex !important; }
+            }
+            /* Hide MarkdownUp's built-in hamburger menu — not needed */
+            .menu-burger, .menu {
+                display: none !important;
+            }
+            /* ── Sidebar collapse ───────────────────────────────── */
+            .oc-sidebar {
+                transition: transform 0.2s ease;
+            }
+            html.oc-collapsed body {
+                padding-left: 1.5rem !important;
+            }
+            html.oc-collapsed .oc-sidebar {
+                transform: translateX(-260px);
+            }
+            html.oc-collapsed .oc-input-bar-wrap {
+                left: 0 !important;
+            }
+            /* ── Mobile top app bar ─────────────────────────────── */
+            .oc-topbar { display: none; }
+            /* ── Responsive design ──────────────────────────────── */
+            @media (max-width: 767px) {
+                body {
+                    padding: calc(52px + 1rem) 1rem 5rem 1rem !important;
+                }
+                .oc-topbar { display: flex !important; }
+                .oc-sidebar {
+                    transform: translateX(-260px);
+                    top: 52px !important;
+                    height: calc(100vh - 52px) !important;
+                }
+                .oc-sidebar.oc-open {
+                    transform: translateX(0) !important;
+                }
+                .oc-overlay { top: 52px !important; }
+                .oc-input-bar-wrap {
+                    left: 0 !important;
+                    padding-left: 0.75rem !important;
+                    padding-right: 0.75rem !important;
+                }
+                /* Models page: card row stacks vertically */
+                .oc-model-card-row {
+                    flex-direction: column !important;
+                    align-items: flex-start !important;
+                }
+                .oc-model-card-actions {
+                    width: 100%;
+                    margin-top: 0.6rem;
+                    flex-wrap: wrap;
+                }
+                /* Page headers: stack title + button */
+                .oc-page-header {
+                    flex-direction: column !important;
+                    align-items: flex-start !important;
+                }
+                .oc-page-header-actions {
+                    width: 100%;
+                    margin-top: 0.5rem;
+                }
+                /* Config form: full-width inputs */
+                .oc-config-input {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    box-sizing: border-box;
+                }
+                /* Conversation header actions: wrap */
+                .oc-conv-header-row {
+                    flex-wrap: wrap !important;
+                }
+                /* Input bar inner container: remove max-width on mobile */
+                .oc-input-bar-wrap > div,
+                .oc-input-bar-wrap > div > div {
+                    max-width: 100% !important;
+                }
+                /* New chat welcome screen */
+                .oc-new-chat-welcome {
+                    min-height: 50vh !important;
+                    padding: 1.5rem 0.75rem 0.75rem !important;
+                }
+                .oc-new-chat-welcome h2 {
+                    font-size: 1.1rem !important;
+                }
+                /* Template tiles: full width on mobile */
+                .oc-template-tiles {
+                    flex-direction: column !important;
+                    align-items: stretch !important;
+                }
+                .oc-template-tile {
+                    width: 100% !important;
+                    border-radius: 10px !important;
+                    white-space: normal !important;
+                    text-align: left !important;
+                    justify-content: flex-start !important;
+                    padding: 10px 14px !important;
+                }
+                /* Home screen: compact layout on mobile */
+                .oc-home-wrap {
+                    justify-content: flex-start !important;
+                    min-height: auto !important;
+                    padding: 1.25rem 0.75rem 1.5rem !important;
+                    gap: 0.75rem !important;
+                }
+                .oc-home-emoji { font-size: 2.5rem !important; }
+                .oc-home-title { font-size: 1.15rem !important; }
+                .oc-home-input {
+                    padding: 0.6rem 0.6rem 0.6rem 1rem !important;
+                    border-radius: 14px !important;
+                }
+                .oc-home-input textarea {
+                    min-height: 88px !important;
+                    font-size: 1rem !important;
+                }
+                /* Grammar page: remove vertical centering on mobile */
+                .oc-grammar-page { display: block !important; padding: 1rem !important; min-height: auto !important; }
+                .oc-gr-lang-row { flex-direction: column !important; gap: 0.5rem !important; }
+                .oc-gr-lang-row > div { width: 100%; }
+                .oc-gr-lang-row select { width: 100% !important; min-width: 0 !important; box-sizing: border-box; }
+                /* Template cards: stack info + actions vertically */
+                .oc-tmpl-card { flex-direction: column !important; align-items: flex-start !important; gap: 0.6rem !important; }
+                .oc-tmpl-actions { width: 100% !important; justify-content: flex-start !important; }
+                /* Grammar diff */
+            .oc-diff-err {
+                background: rgba(239,68,68,0.18);
+                border-bottom: 2px solid #ef4444;
+                cursor: help;
+                position: relative;
+                border-radius: 2px;
+            }
+            .oc-diff-err::after {
+                content: attr(data-tip);
+                position: absolute;
+                bottom: calc(100% + 6px);
+                left: 0;
+                background: #1e1e1e;
+                color: #ececec;
+                border: 1px solid #3f3f3f;
+                padding: 6px 10px;
+                border-radius: 8px;
+                font-size: 0.78rem;
+                line-height: 1.4;
+                max-width: 280px;
+                white-space: normal;
+                z-index: 200;
+                display: none;
+                pointer-events: none;
+                box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            }
+            [data-theme="light"] .oc-diff-err::after {
+                background: #ffffff;
+                color: #111827;
+                border-color: #c5cdd8;
+            }
+            .oc-diff-err:hover::after { display: block; }
+            .oc-diff-fix {
+                background: rgba(16,163,127,0.18);
+                border-bottom: 2px solid #10a37f;
+                border-radius: 2px;
+            }
+            /* Translator layout */
+                .oc-trans-cols {
+                    display: flex;
+                    gap: 0.75rem;
+                    align-items: stretch;
+                }
+                .oc-trans-area {
+                    width: 100%;
+                    resize: none;
+                    box-sizing: border-box;
+                }
+                .oc-trans-area:focus { border-color: var(--oc-accent) !important; }
+                .oc-trans-sel {
+                    width: 100%;
+                    background: var(--oc-bg-2);
+                    border: 1px solid var(--oc-border);
+                    color: var(--oc-text);
+                    font-family: inherit;
+                    cursor: pointer;
+                    outline: none;
+                }
+                .oc-trans-sel:focus { border-color: var(--oc-accent); }
+                @media (max-width: 767px) {
+                    .oc-trans-cols { flex-direction: column !important; }
+                    .oc-trans-area { height: 160px !important; min-height: 120px !important; }
+                }
+                /* Conversation toolbar: icon-only on mobile */
+                .oc-conv-toolbar > button > span,
+                .oc-conv-toolbar > a > span {
+                    display: none !important;
+                }
+                .oc-conv-toolbar > button,
+                .oc-conv-toolbar > a {
+                    padding: 7px !important;
+                    min-width: 34px;
+                    justify-content: center !important;
+                }
+            }
+            @media (min-width: 768px) {
+                .oc-topbar { display: none !important; }
+                html:not(.oc-collapsed) .oc-sidebar { transform: none !important; }
+            }
+            hr {
+                border: none !important;
+                border-top: 1px solid var(--oc-border) !important;
+                margin: 1em 0 !important;
+            }
+            blockquote {
+                border-left: 3px solid var(--oc-border) !important;
+                padding-left: 1em !important;
+                color: var(--oc-text-2) !important;
+            }
+            /* Button transitions */
+            button, a {
+                transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+            }
+            /* Prevent text selection on buttons */
+            button {
+                user-select: none;
+                -webkit-user-select: none;
+            }
+            /* Remove default link underline everywhere */
+            a { text-decoration: none !important; }
+            a:hover { text-decoration: none !important; }
+            /* Smooth focus ring for accessibility */
+            button:focus-visible, input:focus-visible, textarea:focus-visible {
+                outline: 2px solid var(--oc-accent) !important;
+                outline-offset: 2px !important;
+            }
+            button:focus:not(:focus-visible) {
+                outline: none !important;
+            }
+            /* Textarea auto-resize feel */
+            textarea {
+                line-height: 1.5 !important;
+            }
+            /* Generating animation dot */
+            @keyframes blink {
+                0%, 80%, 100% { opacity: 0.2; }
+                40% { opacity: 1; }
+            }
+            .oc-generating-dot {
+                animation: blink 1.4s infinite both;
+            }
+            /* Number input */
+            input[type="number"] {
+                background-color: var(--oc-bg-3) !important;
+                color: var(--oc-text) !important;
+                border: 1px solid var(--oc-border) !important;
+                border-radius: 8px !important;
+                padding: 6px 10px !important;
+                font-family: inherit !important;
+                font-size: 0.875rem !important;
+                outline: none !important;
+                -moz-appearance: textfield;
+            }
+            input[type="number"]::-webkit-inner-spin-button,
+            input[type="number"]::-webkit-outer-spin-button {
+                opacity: 0.4;
+            }
+            input[type="number"]:focus { border-color: var(--oc-accent) !important; }
+            /* ── Code block copy button ─────────────────────────── */
+            pre { position: relative; }
+            .oc-copy-btn {
+                opacity: 0;
+                transition: opacity 0.15s;
+                position: absolute;
+                top: 6px;
+                right: 8px;
+                padding: 2px 9px;
+                border-radius: 6px;
+                font-size: 0.72rem;
+                cursor: pointer;
+                font-family: inherit;
+                z-index: 10;
+            }
+            pre:hover .oc-copy-btn { opacity: 1; }
+            @media (max-width: 767px) { .oc-copy-btn { opacity: 1; } }
+        </style>
     </head>
     <body>
     </body>
     <script type="module">
+        // Grammar diff annotation (JS tooltip — not CSS ::after, avoids overflow clipping)
+        window.ocAnnotateGrammar = function(origEl, corrEl, changes) {
+            if (!changes || !changes.length) return;
+
+            function escHtml(s) {
+                return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            }
+
+            function buildHtml(text, segs, cls) {
+                var used = text.split('');
+                var marks = [];
+                segs.forEach(function(s, idx) {
+                    if (!s) return;
+                    var pos = text.indexOf(s, 0);
+                    // Find first unmasked occurrence
+                    var searchFrom = 0;
+                    while (searchFrom < text.length) {
+                        var p = text.indexOf(s, searchFrom);
+                        if (p < 0) break;
+                        // Check not masked
+                        var masked = false;
+                        for (var i = p; i < p + s.length; i++) { if (used[i] === '\x00') { masked = true; break; } }
+                        if (!masked) {
+                            marks.push({pos: p, len: s.length, idx: idx});
+                            for (var j = p; j < p + s.length; j++) used[j] = '\x00';
+                            break;
+                        }
+                        searchFrom = p + 1;
+                    }
+                });
+                marks.sort(function(a,b){ return a.pos - b.pos; });
+                var html = ''; var cursor = 0;
+                marks.forEach(function(m) {
+                    if (m.pos > cursor) html += escHtml(text.substring(cursor, m.pos));
+                    var seg = text.substring(m.pos, m.pos + m.len);
+                    var tip = (changes[m.idx] && changes[m.idx].explanation) ? escHtml(changes[m.idx].explanation) : '';
+                    html += '<mark class="'+cls+'" data-tip="'+tip+'">'+escHtml(seg)+'</mark>';
+                    cursor = m.pos + m.len;
+                });
+                if (cursor < text.length) html += escHtml(text.substring(cursor));
+                return html;
+            }
+
+            var origSegs = changes.map(function(c){ return c.original; });
+            var corrSegs = changes.map(function(c){ return c.corrected; });
+            origEl.innerHTML = buildHtml(origEl.textContent, origSegs, 'oc-diff-err');
+            corrEl.innerHTML = buildHtml(corrEl.textContent, corrSegs, 'oc-diff-fix');
+
+            // Attach JS tooltips (fixed-position, not clipped by any parent overflow)
+            var activeTip = null;
+            origEl.querySelectorAll('.oc-diff-err[data-tip]').forEach(function(mark) {
+                mark.addEventListener('mouseenter', function(e) {
+                    var tip = mark.getAttribute('data-tip');
+                    if (!tip) return;
+                    if (activeTip) activeTip.remove();
+                    var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+                    activeTip = document.createElement('div');
+                    activeTip.style.cssText = 'position:fixed;z-index:600;background:'+(dark?'#1e1e1e':'#fff')+';color:'+(dark?'#ececec':'#111827')+';border:1px solid '+(dark?'#3f3f3f':'#c5cdd8')+';padding:8px 12px;border-radius:10px;font-size:0.8rem;line-height:1.5;max-width:300px;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,0.35);white-space:normal;';
+                    activeTip.textContent = tip;
+                    document.body.appendChild(activeTip);
+                    var rect = mark.getBoundingClientRect();
+                    var tw = activeTip.offsetWidth, th = activeTip.offsetHeight;
+                    var left = Math.max(8, Math.min(rect.left, window.innerWidth - tw - 8));
+                    var top = rect.top - th - 8;
+                    if (top < 8) top = rect.bottom + 8;
+                    activeTip.style.left = left + 'px';
+                    activeTip.style.top = top + 'px';
+                });
+                mark.addEventListener('mouseleave', function() {
+                    if (activeTip) { activeTip.remove(); activeTip = null; }
+                });
+            });
+        };
+
+        // MutationObserver: detect grammar diff view and annotate it
+        (function() {
+            function runGrammarAnnotation() {
+                var view = document.getElementById('oc-grammar-view');
+                if (!view || view.dataset.annotated) return;
+                var origEl = document.getElementById('oc-gr-orig');
+                var corrEl = document.getElementById('oc-gr-corr');
+                if (!origEl || !corrEl) return;
+                view.dataset.annotated = '1';
+                var raw = sessionStorage.getItem('oc-grammar-results');
+                if (!raw) return;
+                var changes;
+                try { changes = JSON.parse(raw).changes; } catch(e) { return; }
+                if (changes && changes.length) {
+                    setTimeout(function() { ocAnnotateGrammar(origEl, corrEl, changes); }, 80);
+                }
+            }
+            var grammarObs = new MutationObserver(runGrammarAnnotation);
+            grammarObs.observe(document.documentElement, {childList: true, subtree: true});
+            setTimeout(runGrammarAnnotation, 300);
+        })();
+
+        // New Template creation popup (no backend call until Run or Save)
+        window.ocNewTemplate = function() {
+            var existing = document.querySelector('[data-oc-new-tmpl]');
+            if (existing) existing.remove();
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var bg = dark ? '#1e1e1e' : '#ffffff';
+            var tx = dark ? '#ececec' : '#111827';
+            var tx2 = dark ? '#8888a0' : '#6b7280';
+            var bd = dark ? '#3f3f3f' : '#c5cdd8';
+            var iBg = dark ? '#2a2a2a' : '#f5f5f5';
+            var inpStyle = 'width:100%;padding:9px 12px;background:'+iBg+';border:1px solid '+bd+';border-radius:8px;color:'+tx+';font-size:0.9rem;font-family:inherit;outline:none;box-sizing:border-box;';
+            var popup = document.createElement('div');
+            popup.setAttribute('data-oc-new-tmpl','1');
+            popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:500;display:flex;align-items:center;justify-content:center;padding:1rem;';
+            popup.innerHTML =
+                '<div style="background:'+bg+';border:1px solid '+bd+';border-radius:14px;padding:1.5rem;width:100%;max-width:520px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">'
+                +'<p style="margin:0 0 1.25rem;font-size:1rem;font-weight:600;color:'+tx+';">New Template</p>'
+                +'<label style="display:block;font-size:0.78rem;font-weight:600;color:'+tx2+';text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.35rem;">Title</label>'
+                +'<input id="oc-nt-title" type="text" placeholder="e.g. Code Review" style="'+inpStyle+'margin-bottom:1rem;">'
+                +'<label style="display:block;font-size:0.78rem;font-weight:600;color:'+tx2+';text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.35rem;">First prompt</label>'
+                +'<textarea id="oc-nt-prompt" rows="5" placeholder="Enter the prompt text..." style="'+inpStyle+'resize:vertical;margin-bottom:1.25rem;line-height:1.5;"></textarea>'
+                +'<div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap;">'
+                +'<button onclick="document.querySelector(\'[data-oc-new-tmpl]\').remove();" style="padding:8px 14px;border-radius:8px;border:1px solid '+bd+';background:transparent;color:'+tx2+';font-size:0.875rem;cursor:pointer;font-family:inherit;">Cancel</button>'
+                +'<button id="oc-nt-save" style="padding:8px 16px;border-radius:8px;border:1px solid '+bd+';background:transparent;color:'+tx+';font-size:0.875rem;cursor:pointer;font-family:inherit;">Save</button>'
+                +'<button id="oc-nt-run" style="padding:8px 18px;border-radius:8px;border:none;background:#10a37f;color:white;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;">▶ Run</button>'
+                +'</div></div>';
+            document.body.appendChild(popup);
+            var titleInp = document.getElementById('oc-nt-title');
+            var promptInp = document.getElementById('oc-nt-prompt');
+            titleInp.focus();
+
+            function createTemplate(onSuccess) {
+                var title = titleInp.value.trim() || 'New template';
+                var prompt = promptInp.value.trim() || 'New prompt';
+                fetch('createTemplate', {method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({title: title, prompts: [prompt]})})
+                    .then(function(r){ return r.json(); })
+                    .then(function(d){ if (d.id) onSuccess(d.id, title, prompt); })
+                    .catch(function(){ alert('Failed to create template.'); });
+            }
+
+            document.getElementById('oc-nt-save').onclick = function() {
+                createTemplate(function(id) {
+                    popup.remove();
+                    window.location.href = window.location.pathname + "#var.vId='"+id+"'&var.vView='template'";
+                    window.location.reload();
+                });
+            };
+
+            document.getElementById('oc-nt-run').onclick = function() {
+                createTemplate(function(id) {
+                    popup.remove();
+                    fetch('startTemplate', {method:'POST', headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({id: id, variables: {}})})
+                        .then(function(r){ return r.json(); })
+                        .then(function(d){
+                            if (d.id) {
+                                window.location.href = window.location.pathname
+                                    + "#var.vId='"+d.id+"'&var.vView='chat'";
+                                window.location.reload();
+                            }
+                        });
+                });
+            };
+
+            popup.addEventListener('click', function(e){ if (e.target === popup) popup.remove(); });
+            titleInp.addEventListener('keydown', function(e){ if (e.key==='Escape') popup.remove(); });
+            promptInp.addEventListener('keydown', function(e){ if (e.key==='Escape') popup.remove(); });
+        };
+
+        // Generic input popup (used by @Web URL and @cURL)
+        window.ocShowInputPopup = function(opts) {
+            var existing = document.querySelector('[data-oc-input-popup]');
+            if (existing) existing.remove();
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var bg = dark ? '#1e1e1e' : '#ffffff';
+            var tx = dark ? '#ececec' : '#111827';
+            var tx2 = dark ? '#8888a0' : '#6b7280';
+            var bd = dark ? '#3f3f3f' : '#c5cdd8';
+            var iBg = dark ? '#2a2a2a' : '#f5f5f5';
+            var popup = document.createElement('div');
+            popup.setAttribute('data-oc-input-popup', '1');
+            popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:500;display:flex;align-items:center;justify-content:center;padding:1rem;';
+            var inputStyle = 'width:100%;padding:9px 12px;background:'+iBg+';border:1px solid '+bd+';border-radius:8px;color:'+tx+';font-size:0.9rem;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:1rem;';
+            var inputEl = opts.multiline
+                ? '<textarea id="oc-popup-inp" rows="8" placeholder="'+opts.placeholder.replace(/"/g,'&quot;').replace(/\n/g,'&#10;')+'" style="'+inputStyle+'resize:vertical;"></textarea>'
+                : '<input id="oc-popup-inp" type="text" placeholder="'+opts.placeholder.replace(/"/g,'&quot;')+'" style="'+inputStyle+'">';
+            popup.innerHTML = '<div style="background:'+bg+';border:1px solid '+bd+';border-radius:14px;padding:1.5rem;width:100%;max-width:520px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">'
+                +'<p style="margin:0 0 0.6rem;font-size:1rem;font-weight:600;color:'+tx+';">'+opts.title+'</p>'
+                +'<p style="margin:0 0 0.75rem;font-size:0.8rem;color:'+tx2+';">'+opts.label+'</p>'
+                + inputEl
+                +'<div style="display:flex;gap:0.5rem;justify-content:flex-end;">'
+                +'<button onclick="document.querySelector(\'[data-oc-input-popup]\').remove();" style="padding:8px 14px;border-radius:8px;border:1px solid '+bd+';background:transparent;color:'+tx2+';font-size:0.875rem;cursor:pointer;font-family:inherit;">Cancel</button>'
+                +'<button id="oc-popup-ok" style="padding:8px 16px;border-radius:8px;border:none;background:#10a37f;color:white;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;">'+opts.btnLabel+'</button>'
+                +'</div></div>';
+            document.body.appendChild(popup);
+            var inp = document.getElementById('oc-popup-inp');
+            inp.focus();
+            function confirm() {
+                var val = inp.value.trim();
+                if (!val) { inp.focus(); return; }
+                popup.remove();
+                opts.onConfirm(val);
+            }
+            document.getElementById('oc-popup-ok').onclick = confirm;
+            inp.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !opts.multiline) { e.preventDefault(); confirm(); }
+                if (e.key === 'Escape') popup.remove();
+            });
+            popup.addEventListener('click', function(e) { if (e.target === popup) popup.remove(); });
+        };
+
+        // Translator: sync localStorage preferences to sessionStorage (readable by bare-script)
+        (function() {
+            ['oc-trans-from','oc-trans-to','oc-trans-level','oc-trans-style','oc-trans-tone',
+         'oc-grammar-text-lang','oc-grammar-hint-lang'].forEach(function(k){
+                var v = localStorage.getItem(k);
+                if (v) sessionStorage.setItem(k, v);
+            });
+        })();
+
+        // Translator chip selection (level / style / tone)
+        window.ocSelectChip = function(btn) {
+            var group = btn.getAttribute('data-group');
+            var val = btn.getAttribute('data-val');
+            localStorage.setItem('oc-trans-' + group, val);
+            sessionStorage.setItem('oc-trans-' + group, val);
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            document.querySelectorAll('[data-group="'+group+'"]').forEach(function(b) {
+                var active = b === btn;
+                b.style.background = active ? (dark?'#10a37f':'#0d8f6e') : 'transparent';
+                b.style.color = active ? 'white' : (dark?'#c0c0d0':'#4b5563');
+                b.style.borderColor = active ? (dark?'#10a37f':'#0d8f6e') : (dark?'#3f3f3f':'#c5cdd8');
+            });
+        };
+
+        // File attachment state and helpers
+        window.ocFileState = {name: null, content: null, type: null, base64: null};
+
+        window.ocPickFile = function(inputId) {
+            var fi = document.createElement('input');
+            fi.type = 'file';
+            fi.onchange = function() { if (fi.files[0]) ocReadFile(fi.files[0], inputId); };
+            fi.click();
+        };
+
+        window.ocReadFile = function(file, inputId) {
+            if (file.type.startsWith('image/')) {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    var dataUrl = e.target.result;
+                    var b64 = dataUrl.split(',')[1];
+                    ocFileState = {name: file.name, type: 'image', base64: b64, content: null};
+                    var hi = document.getElementById('oc-img-b64');
+                    if (hi) hi.value = b64;
+                    ocShowImageChip(inputId, file.name, dataUrl);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    ocFileState = {name: file.name, type: 'text', content: e.target.result, base64: null};
+                    ocShowFileChip(inputId, file.name);
+                };
+                reader.onerror = function() { alert('Cannot read file: ' + file.name); };
+                reader.readAsText(file, 'UTF-8');
+            }
+        };
+
+        window.ocShowFileChip = function(inputId, fileName) {
+            var old = document.getElementById('oc-file-chip');
+            if (old) old.remove();
+            var bar = document.querySelector('[data-oc-input-bar]');
+            if (!bar) return;
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var ac = dark ? '#10a37f' : '#0d8f6e';
+            var chip = document.createElement('div');
+            chip.id = 'oc-file-chip';
+            chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 8px;background:'+(dark?'rgba(16,163,127,0.12)':'rgba(13,143,110,0.08)')+';border:1px solid '+ac+';border-radius:8px;font-size:0.8rem;color:'+ac+';margin-bottom:6px;max-width:100%;';
+            chip.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>'
+                + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;" title="'+fileName+'">'+fileName+'</span>'
+                + '<button onclick="ocClearFile()" style="background:none;border:none;cursor:pointer;color:inherit;padding:0;font-size:1.1rem;line-height:1;flex-shrink:0;" title="Remove">×</button>';
+            bar.insertBefore(chip, bar.firstChild);
+        };
+
+        window.ocShowImageChip = function(inputId, fileName, dataUrl) {
+            var old = document.getElementById('oc-file-chip');
+            if (old) old.remove();
+            var bar = document.querySelector('[data-oc-input-bar]');
+            if (!bar) return;
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var chip = document.createElement('div');
+            chip.id = 'oc-file-chip';
+            chip.style.cssText = 'display:inline-flex;align-items:center;gap:8px;padding:4px 10px 4px 4px;background:'+(dark?'rgba(16,163,127,0.12)':'rgba(13,143,110,0.08)')+';border:1px solid '+(dark?'#10a37f':'#0d8f6e')+';border-radius:8px;font-size:0.8rem;color:'+(dark?'#10a37f':'#0d8f6e')+';margin-bottom:6px;max-width:100%;';
+            chip.innerHTML = '<img src="'+dataUrl+'" style="width:36px;height:36px;object-fit:cover;border-radius:5px;flex-shrink:0;">'
+                + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;" title="'+fileName+'">'+fileName+'</span>'
+                + '<span style="font-size:0.7rem;opacity:0.7;flex-shrink:0;padding:1px 5px;border-radius:4px;background:rgba(16,163,127,0.2);">image</span>'
+                + '<button onclick="ocClearFile()" style="background:none;border:none;cursor:pointer;color:inherit;padding:0;font-size:1.1rem;line-height:1;flex-shrink:0;" title="Remove">×</button>';
+            bar.insertBefore(chip, bar.firstChild);
+        };
+
+        window.ocClearFile = function() {
+            ocFileState = {name: null, content: null, type: null, base64: null};
+            var chip = document.getElementById('oc-file-chip');
+            if (chip) chip.remove();
+            var hi = document.getElementById('oc-img-b64');
+            if (hi) hi.value = '';
+            // Also clear url hint
+            var urlHint = document.getElementById('oc-url-hint');
+            if (urlHint) urlHint.remove();
+        };
+
+        // Called before send: injects text file → textarea and @mention commands; images are in hidden #oc-img-b64
+        window.ocInjectFile = function(inputId) {
+            var inp = document.getElementById(inputId);
+            if (!inp) return;
+
+            // Inject text file content
+            if (ocFileState.type === 'text' && ocFileState.content) {
+                var text = (inp.value || '').trim();
+                var block = '<'+ocFileState.name+'>\n'+ocFileState.content+'\n</'+ocFileState.name+'>';
+                inp.value = text ? text + '\n\n' + block : block;
+                if (inp.tagName === 'TEXTAREA') { inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,300)+'px'; }
+                ocClearFile();
+            }
+            // Images: base64 already in #oc-img-b64, bare-script reads and sends
+
+            // Inject @mention content/commands (prepend before message text)
+            var ready = ocMentionItems.filter(function(i){ return i.kind !== 'loading'; });
+            if (ready.length > 0) {
+                var msgText = (inp.value || '').trim();
+                var parts = ready.map(function(i){
+                    if (i.kind === 'content') return i.text; // pre-fetched content
+                    return i.text; // 'cmd' kind: '/file /path'
+                });
+                inp.value = parts.join('\n\n') + (msgText ? '\n\n' + msgText : '');
+                ocMentionItems = [];
+                document.querySelectorAll('[data-mention-chip]').forEach(function(c){c.remove();});
+                var urlHint = document.getElementById('oc-url-hint');
+                if (urlHint) urlHint.remove();
+            }
+        };
+
+        // Setup drag & drop on a container element (call after DOM ready)
+        window.ocSetupDrop = function(containerId, inputId) {
+            var cont = document.getElementById(containerId) || document.querySelector('[data-oc-input-bar]');
+            if (!cont || cont._dropSetup) return;
+            cont._dropSetup = true;
+            cont.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                cont.style.outline = '2px dashed #10a37f';
+                cont.style.outlineOffset = '2px';
+            });
+            cont.addEventListener('dragleave', function() { cont.style.outline=''; cont.style.outlineOffset=''; });
+            cont.addEventListener('drop', function(e) {
+                e.preventDefault();
+                cont.style.outline=''; cont.style.outlineOffset='';
+                var f = e.dataTransfer.files[0];
+                if (f) ocReadFile(f, inputId || 'ollama-chat-prompt');
+            });
+        };
+
+        // @-mention context system
+        window.ocMentionItems = []; // [{icon, label, cmd}]
+
+        // Called on every input event in the textarea
+        window.ocCheckAtMention = function(textarea) {
+            var val = textarea.value;
+            var pos = textarea.selectionStart;
+            // Detect @ at word boundary
+            if (pos > 0 && val[pos-1] === '@') {
+                var pre = val.substring(0, pos-1);
+                if (pre.length === 0 || /[\s\n]$/.test(pre)) {
+                    ocShowAtMenu(textarea);
+                    return;
+                }
+            }
+            // URL paste detection: if textarea contains a bare URL pattern
+            var urlMatch = val.match(/(https?:\/\/[^\s]+)$/);
+            if (urlMatch && !val.trimEnd().endsWith('@')) {
+                ocShowUrlHint(textarea, urlMatch[1]);
+            } else {
+                ocHideUrlHint();
+            }
+            ocHideAtMenu();
+        };
+
+        window.ocHideAtMenu = function() {
+            var m = document.querySelector('[data-oc-at-menu]');
+            if (m) m.remove();
+        };
+
+        window.ocHideUrlHint = function() {
+            var h = document.getElementById('oc-url-hint');
+            if (h) h.remove();
+        };
+
+        window.ocShowAtMenu = function(textarea) {
+            ocHideAtMenu();
+            var bar = document.querySelector('[data-oc-input-bar]');
+            if (!bar) return;
+            var rect = bar.getBoundingClientRect();
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var bg = dark ? '#1e1e1e' : '#fff';
+            var bd = dark ? '#3f3f3f' : '#c5cdd8';
+            var tx = dark ? '#ececec' : '#111827';
+            var tx2 = dark ? '#8888a0' : '#6b7280';
+            var hv = dark ? '#2a2a2a' : '#f0f0f2';
+
+            var menu = document.createElement('div');
+            menu.setAttribute('data-oc-at-menu', '1');
+            menu.style.cssText = 'position:fixed;bottom:'+(window.innerHeight-rect.top+8)+'px;left:'+rect.left+'px;width:'+Math.min(rect.width,380)+'px;z-index:350;background:'+bg+';border:1px solid '+bd+';border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.35);padding:6px;';
+
+            var opts = [
+                {key:'file', icon:'\uD83D\uDCC4', label:'File', hint:'Pick a text file — content included'},
+                {key:'folder', icon:'\uD83D\uDCC1', label:'Folder', hint:'Pick a local folder — reads all text files'},
+                {key:'image', icon:'\uD83D\uDDBC\uFE0F', label:'Image', hint:'Attach an image for vision models'},
+                {key:'web', icon:'\uD83C\uDF10', label:'Web URL', hint:'Fetch and include page content'},
+                {key:'curl', icon:'\uD83D\uDD17', label:'cURL', hint:'Run a curl command, include response'},
+            ];
+
+            var rows = [];
+            opts.forEach(function(o) {
+                var row = document.createElement('button');
+                row.type = 'button';
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:transparent;color:'+tx+';font-family:inherit;cursor:pointer;border-radius:9px;text-align:left;';
+                row.innerHTML = '<span style="font-size:1.1rem;width:22px;text-align:center;flex-shrink:0;">'+o.icon+'</span>'
+                    +'<span><span style="font-size:0.9rem;font-weight:500;display:block;">@'+o.label+'</span>'
+                    +'<span style="font-size:0.75rem;color:'+tx2+';">'+o.hint+'</span></span>';
+                row.onmouseover = function(){this.style.background=hv;};
+                row.onmouseout = function(){this.style.background='transparent';};
+                row._opt = o;
+
+                // Each option has its own handler
+                row.onclick = (function(opt){ return function() {
+                    if (opt.key === 'file') {
+                        // Direct file picker — same as attachment button
+                        menu.remove(); document.removeEventListener('keydown', keyHandler);
+                        var v0=textarea.value, p0=textarea.selectionStart;
+                        var ai0=v0.lastIndexOf('@',p0-1);
+                        if(ai0>=0){textarea.value=v0.substring(0,ai0)+v0.substring(p0);textarea.selectionStart=textarea.selectionEnd=ai0;}
+                        ocPickFile(textarea.id);
+                        textarea.focus();
+                    } else if (opt.key === 'folder') {
+                        menu.remove();
+                        document.removeEventListener('keydown', keyHandler);
+                        var fi = document.createElement('input');
+                        fi.type = 'file'; fi.webkitdirectory = true; fi.multiple = true;
+                        fi.onchange = function() {
+                            if (!fi.files.length) return;
+                            var files = Array.from(fi.files);
+                            var folderName = files[0].webkitRelativePath.split('/')[0] || 'folder';
+                            var skipExt = /\.(png|jpg|jpeg|gif|webp|ico|svg|pdf|zip|gz|tar|exe|bin|dylib|so|dll|wasm|class|pyc)$/i;
+                            var textFiles = files.filter(function(f){ return !skipExt.test(f.name) && f.size < 500000; });
+                            if (!textFiles.length) { alert('No readable text files found in this folder.'); return; }
+                            var chipId = 'mc-' + Date.now();
+                            ocAddMentionChip('\uD83D\uDCC1', folderName + ' (reading ' + textFiles.length + ' files...)', {kind:'loading', id:chipId});
+                            var pending = textFiles.length, done = [];
+                            textFiles.forEach(function(f) {
+                                var r2 = new FileReader();
+                                r2.onload = function(e) {
+                                    done.push('<'+f.webkitRelativePath+'>\n'+e.target.result+'\n</'+f.webkitRelativePath+'>');
+                                    if (--pending === 0) finalize();
+                                };
+                                r2.onerror = function(){ if (--pending === 0) finalize(); };
+                                r2.readAsText(f, 'UTF-8');
+                            });
+                            function finalize() {
+                                var item = ocMentionItems.find(function(i){ return i._id===chipId; });
+                                if (!item) return;
+                                item.kind='content'; item.text=done.join('\n\n');
+                                item.label=folderName+' ('+done.length+' files)';
+                                var chip=document.querySelector('[data-mention-chip="'+chipId+'"]');
+                                if (chip){var sp=chip.querySelector('span:nth-child(2)');if(sp)sp.textContent=item.label;}
+                            }
+                            textarea.focus();
+                        };
+                        fi.click();
+                    } else if (opt.key === 'image') {
+                        menu.remove(); document.removeEventListener('keydown', keyHandler);
+                        var v2=textarea.value, p2=textarea.selectionStart;
+                        var ai2=v2.lastIndexOf('@',p2-1);
+                        if(ai2>=0){textarea.value=v2.substring(0,ai2)+v2.substring(p2);textarea.selectionStart=textarea.selectionEnd=ai2;}
+                        ocPickFile(textarea.id);
+                        textarea.focus();
+                    } else if (opt.key === 'web') {
+                        menu.remove(); document.removeEventListener('keydown', keyHandler);
+                        var vw=textarea.value, pw=textarea.selectionStart;
+                        var aiw=vw.lastIndexOf('@',pw-1);
+                        if(aiw>=0){textarea.value=vw.substring(0,aiw)+vw.substring(pw);textarea.selectionStart=textarea.selectionEnd=aiw;}
+                        ocShowInputPopup({
+                            title:'🌐 Web URL',
+                            label:'Paste a URL to fetch its content:',
+                            placeholder:'https://example.com/page',
+                            btnLabel:'Fetch',
+                            multiline: false,
+                            onConfirm: function(val) {
+                                var chipId='mc-'+Date.now();
+                                var host=val; try{host=new URL(val).hostname;}catch(e){}
+                                ocAddMentionChip('\uD83C\uDF10', host, {kind:'loading',id:chipId});
+                                fetch('fetchUrl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:val})})
+                                    .then(function(r){return r.json();})
+                                    .then(function(d){
+                                        var item=ocMentionItems.find(function(i){return i._id===chipId;});
+                                        if(item&&d.content){item.kind='content';item.text=d.content;}
+                                        else if(item&&d.error){ocRemoveMentionChip(null,chipId);alert('Error fetching URL: '+(d.message||d.error));}
+                                    }).catch(function(){ocRemoveMentionChip(null,chipId);alert('Failed to fetch URL.');});
+                            }
+                        });
+                        textarea.focus();
+                    } else if (opt.key === 'curl') {
+                        menu.remove(); document.removeEventListener('keydown', keyHandler);
+                        var vc=textarea.value, pc=textarea.selectionStart;
+                        var aic=vc.lastIndexOf('@',pc-1);
+                        if(aic>=0){textarea.value=vc.substring(0,aic)+vc.substring(pc);textarea.selectionStart=textarea.selectionEnd=aic;}
+                        ocShowInputPopup({
+                            title:'\uD83D\uDD17 cURL Request',
+                            label:'Paste your curl command — the server will execute it and include the response:',
+                            placeholder:"curl --location 'https://api.example.com/endpoint' \\\n  --header 'Authorization: Bearer token' \\\n  --header 'Content-Type: application/json' \\\n  --data '{\"key\": \"value\"}'",
+                            btnLabel:'Execute & Add',
+                            multiline: true,
+                            onConfirm: function(val) {
+                                var chipId='mc-'+Date.now();
+                                var short=val.substring(0,50).replace(/\n/g,' ')+(val.length>50?'...':'');
+                                ocAddMentionChip('\uD83D\uDD17', short, {kind:'loading',id:chipId});
+                                fetch('executeCurl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:val})})
+                                    .then(function(r){return r.json();})
+                                    .then(function(d){
+                                        var item=ocMentionItems.find(function(i){return i._id===chipId;});
+                                        if(item&&d.content){item.kind='content';item.text=d.content;}
+                                        else if(item&&d.error){ocRemoveMentionChip(null,chipId);alert('cURL error: '+(d.message||d.error));}
+                                    }).catch(function(){ocRemoveMentionChip(null,chipId);alert('Failed to execute curl.');});
+                            }
+                        });
+                        textarea.focus();
+                    } else {
+                        ocShowAtSubForm(opt.key, textarea, menu, bg, bd, tx, tx2);
+                    }
+                }; })(o);
+
+                rows.push(row);
+                menu.appendChild(row);
+            });
+
+            // Keyboard navigation: arrows select, Enter confirms, Escape closes
+            var selIdx = 0;
+            function highlight(i) {
+                rows.forEach(function(r,j){ r.style.background = j===i ? hv : 'transparent'; });
+                selIdx = i;
+            }
+            highlight(0);
+            function keyHandler(e) {
+                if (!document.body.contains(menu)) { document.removeEventListener('keydown', keyHandler); return; }
+                if (e.key === 'ArrowDown') { e.preventDefault(); highlight((selIdx+1) % rows.length); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); highlight((selIdx+rows.length-1) % rows.length); }
+                else if (e.key === 'Enter') { e.preventDefault(); document.removeEventListener('keydown', keyHandler); rows[selIdx].click(); }
+                else if (e.key === 'Escape') { e.preventDefault(); document.removeEventListener('keydown', keyHandler); menu.remove(); textarea.focus(); }
+            }
+            document.addEventListener('keydown', keyHandler);
+
+            // Close on outside click
+            setTimeout(function() {
+                document.addEventListener('click', function h(e) {
+                    if (!menu.contains(e.target) && e.target !== textarea) {
+                        menu.remove();
+                        document.removeEventListener('click', h);
+                        document.removeEventListener('keydown', keyHandler);
+                    }
+                });
+            }, 50);
+
+            document.body.appendChild(menu);
+        };
+
+        window.ocShowAtSubForm = function(type, textarea, menu, bg, bd, tx, tx2) {
+            // Clear menu content, show sub-form
+            menu.innerHTML = '';
+            menu.style.padding = '12px';
+
+            var title = {file:'\uD83D\uDCC4 File path', folder:'\uD83D\uDCC1 Directory', web:'\uD83C\uDF10 Web URL'}[type];
+            var placeholder = {file:'/path/to/file.py', folder:'/path/to/project', web:'https://example.com/page'}[type];
+
+            var label = document.createElement('div');
+            label.style.cssText = 'font-size:0.8rem;font-weight:600;color:'+tx2+';margin-bottom:8px;';
+            label.textContent = title;
+            menu.appendChild(label);
+
+            var inputStyle = 'width:100%;padding:8px 10px;background:'+(document.documentElement.getAttribute('data-theme')!=='light'?'#2a2a2a':'#f5f5f5')+';border:1px solid '+bd+';border-radius:8px;color:'+tx+';font-size:0.875rem;font-family:inherit;outline:none;box-sizing:border-box;';
+
+            var inp1 = document.createElement('input');
+            inp1.type='text'; inp1.placeholder=placeholder; inp1.style.cssText=inputStyle+'margin-bottom:8px;';
+            inp1.onfocus=function(){this.style.borderColor='#10a37f';};
+            inp1.onblur=function(){this.style.borderColor=bd;};
+            menu.appendChild(inp1);
+
+            var inp2 = null;
+            if (type === 'folder') {
+                var row2 = document.createElement('div');
+                row2.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;';
+                inp2 = document.createElement('input');
+                inp2.type='text'; inp2.placeholder='ext (e.g. py)'; inp2.style.cssText=inputStyle.replace('margin-bottom:8px;','')+'flex:1;';
+                inp2.onfocus=function(){this.style.borderColor='#10a37f';};
+                inp2.onblur=function(){this.style.borderColor=bd;};
+                var inp3 = document.createElement('input');
+                inp3.type='number'; inp3.placeholder='depth'; inp3.value='1'; inp3.min='1'; inp3.max='5';
+                inp3.style.cssText=inputStyle.replace('margin-bottom:8px;','')+'width:70px;';
+                inp3.onfocus=function(){this.style.borderColor='#10a37f';};
+                inp3.onblur=function(){this.style.borderColor=bd;};
+                row2.appendChild(inp2);
+                row2.appendChild(inp3);
+                menu.appendChild(row2);
+                // store depth ref
+                inp2._depth = inp3;
+            }
+
+            var btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;gap:6px;';
+
+            var addBtn = document.createElement('button');
+            addBtn.type='button'; addBtn.textContent='Add to context';
+            addBtn.style.cssText='flex:1;padding:7px 12px;border-radius:8px;border:none;background:#10a37f;color:white;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;';
+            addBtn.onmouseover=function(){this.style.background='#0a7a5e';};
+            addBtn.onmouseout=function(){this.style.background='#10a37f';};
+            addBtn.onclick = function() {
+                var path = inp1.value.trim();
+                if (!path) { inp1.focus(); return; }
+
+                // Remove @ from textarea
+                var v = textarea.value, p = textarea.selectionStart;
+                var atIdx = v.lastIndexOf('@', p-1);
+                if (atIdx >= 0) {
+                    textarea.value = v.substring(0, atIdx) + v.substring(p);
+                    textarea.selectionStart = textarea.selectionEnd = atIdx;
+                }
+                menu.remove();
+                textarea.focus();
+
+                if (type === 'file') {
+                    // @File: still uses server-side /file command
+                    ocAddMentionChip('\uD83D\uDCC4', path.split('/').pop(), {kind:'cmd', text:'/file '+path});
+                } else if (type === 'folder') {
+                    // @Folder: call readDirectory API
+                    var ext = inp2 ? inp2.value.trim() : '';
+                    var depth = inp2 ? parseInt(inp2._depth.value)||1 : 1;
+                    var label2 = path.split('/').pop() + (ext?' (*.'+ext+')':'');
+                    var chipId = 'mc-' + Date.now();
+                    ocAddMentionChip('\uD83D\uDCC1', label2, {kind:'loading', id:chipId});
+                    var body = {path:path, depth:depth};
+                    if (ext) body.ext = ext;
+                    fetch('readDirectory', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+                        .then(function(r){return r.json();})
+                        .then(function(d){
+                            var item = ocMentionItems.find(function(i){return i._id===chipId;});
+                            if (item && d.content) { item.kind='content'; item.text=d.content; }
+                            else if (item && d.error) { ocRemoveMentionChip(null, chipId); alert('Error reading directory: '+(d.message||d.error)); }
+                        }).catch(function(){
+                            var item = ocMentionItems.find(function(i){return i._id===chipId;});
+                            if (item) ocRemoveMentionChip(null, chipId);
+                            alert('Failed to read directory.');
+                        });
+                } else {
+                    // @Web URL: call fetchUrl API
+                    var hostname = path;
+                    try { hostname = new URL(path).hostname; } catch(e){}
+                    var chipId2 = 'mc-' + Date.now();
+                    ocAddMentionChip('\uD83C\uDF10', hostname, {kind:'loading', id:chipId2});
+                    fetch('fetchUrl', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:path})})
+                        .then(function(r){return r.json();})
+                        .then(function(d){
+                            var item = ocMentionItems.find(function(i){return i._id===chipId2;});
+                            if (item && d.content) { item.kind='content'; item.text=d.content; }
+                            else if (item && d.error) { ocRemoveMentionChip(null, chipId2); alert('Error fetching URL: '+(d.message||d.error)); }
+                        }).catch(function(){
+                            var item = ocMentionItems.find(function(i){return i._id===chipId2;});
+                            if (item) ocRemoveMentionChip(null, chipId2);
+                            alert('Failed to fetch URL.');
+                        });
+                }
+            };
+
+            var cancelBtn = document.createElement('button');
+            cancelBtn.type='button'; cancelBtn.textContent='Cancel';
+            cancelBtn.style.cssText='padding:7px 12px;border-radius:8px;border:1px solid '+bd+';background:transparent;color:'+tx2+';font-size:0.875rem;cursor:pointer;font-family:inherit;';
+            cancelBtn.onclick=function(){ menu.remove(); textarea.focus(); };
+
+            btnRow.appendChild(addBtn);
+            btnRow.appendChild(cancelBtn);
+            menu.appendChild(btnRow);
+            setTimeout(function(){ inp1.focus(); }, 50);
+        };
+
+        window.ocShowUrlHint = function(textarea, url) {
+            if (document.getElementById('oc-url-hint')) return; // already showing
+            var bar = document.querySelector('[data-oc-input-bar]');
+            if (!bar) return;
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var hint = document.createElement('div');
+            hint.id = 'oc-url-hint';
+            hint.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:'+(dark?'rgba(16,163,127,0.12)':'rgba(13,143,110,0.08)')+';border:1px solid '+(dark?'#10a37f':'#0d8f6e')+';border-radius:7px;font-size:0.78rem;color:'+(dark?'#10a37f':'#0d8f6e')+';margin-bottom:6px;cursor:pointer;';
+            hint.innerHTML = '\uD83C\uDF10 <span>Add "'+url.substring(0,40)+(url.length>40?'...':'')+'" as @web context</span>';
+            hint.onclick = function() {
+                // Remove URL from textarea
+                textarea.value = textarea.value.replace(url, '').trimEnd();
+                hint.remove();
+                ocAddMentionChip('\uD83C\uDF10', new URL(url).hostname, '/url ' + url);
+                textarea.focus();
+            };
+            bar.insertBefore(hint, bar.firstChild);
+        };
+
+        window.ocAddMentionChip = function(icon, label, data) {
+            // data: {kind:'cmd'|'content'|'loading', text, id}
+            var id = data.id || ('mc-'+Date.now());
+            ocMentionItems.push({icon:icon, label:label, kind:data.kind, text:data.text, _id:id});
+            var bar = document.querySelector('[data-oc-input-bar]');
+            if (!bar) return;
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var chip = document.createElement('div');
+            chip.setAttribute('data-mention-chip', id);
+            chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 8px;background:'+(dark?'#2a2a2a':'#f0f2f5')+';border:1px solid '+(dark?'#3f3f3f':'#c5cdd8')+';border-radius:7px;font-size:0.8rem;color:'+(dark?'#c0c0d0':'#4b5563')+';margin-bottom:6px;margin-right:4px;';
+            var loadingSpinner = data.kind==='loading' ? ' <span style="opacity:0.5;font-size:0.7rem;">loading...</span>' : '';
+            chip.innerHTML = '<span>'+icon+'</span><span style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+label+'">'+label+'</span>'+loadingSpinner
+                +'<button onclick="ocRemoveMentionChip(this,\''+id+'\')" style="background:none;border:none;cursor:pointer;color:inherit;padding:0;font-size:1rem;line-height:1;flex-shrink:0;opacity:0.6;" title="Remove">\u00d7</button>';
+            var firstNonChip = Array.from(bar.children).find(function(c) { return !c.hasAttribute('data-mention-chip') && c.id !== 'oc-file-chip' && c.id !== 'oc-url-hint'; });
+            if (firstNonChip) bar.insertBefore(chip, firstNonChip);
+            else bar.insertBefore(chip, bar.firstChild);
+        };
+
+        window.ocRemoveMentionChip = function(btn, id) {
+            ocMentionItems = ocMentionItems.filter(function(i){ return i._id !== id; });
+            var el = btn ? btn.closest('[data-mention-chip]') : document.querySelector('[data-mention-chip="'+id+'"]');
+            if (el) el.remove();
+        };
+
+        // Edit conversation title modal
+        window.ocEditTitle = function(convId, encodedTitle) {
+            var title = decodeURIComponent(encodedTitle);
+            var existing = document.querySelector('[data-oc-title-modal]');
+            if (existing) existing.remove();
+            var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            var bg = dark ? '#1e1e1e' : '#ffffff';
+            var iBg = dark ? '#2a2a2a' : '#f0f0f2';
+            var tx = dark ? '#ececec' : '#111827';
+            var bd = dark ? '#3f3f3f' : '#c5cdd8';
+            var modal = document.createElement('div');
+            modal.setAttribute('data-oc-title-modal','1');
+            modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:500;display:flex;align-items:center;justify-content:center;padding:1rem;';
+            modal.innerHTML = '<div style="background:'+bg+';border:1px solid '+bd+';border-radius:14px;padding:1.5rem;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">'
+                + '<p style="margin:0 0 0.75rem;font-size:0.95rem;font-weight:600;color:'+tx+';">Edit conversation title</p>'
+                + '<input id="oc-ti" type="text" style="width:100%;padding:9px 12px;background:'+iBg+';border:1px solid '+bd+';border-radius:8px;color:'+tx+';font-size:0.9rem;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:1rem;">'
+                + '<div style="display:flex;gap:0.5rem;justify-content:flex-end;">'
+                + '<button onclick="document.querySelector(\'[data-oc-title-modal]\').remove();" style="padding:7px 14px;border-radius:8px;border:1px solid '+bd+';background:transparent;color:'+(dark?'#c0c0d0':'#4b5563')+';font-size:0.875rem;cursor:pointer;font-family:inherit;">Cancel</button>'
+                + '<button id="oc-ts" style="padding:7px 14px;border-radius:8px;border:none;background:#10a37f;color:white;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;">Update</button>'
+                + '</div></div>';
+            document.body.appendChild(modal);
+            var inp = document.getElementById('oc-ti');
+            inp.value = title; inp.focus(); inp.select();
+            function save() {
+                var v = inp.value.trim(); if (!v) return;
+                fetch('setConversationTitle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:convId,title:v})})
+                .then(function(){document.querySelector('[data-oc-title-modal]').remove();location.reload();});
+            }
+            document.getElementById('oc-ts').onclick = save;
+            inp.addEventListener('keydown',function(e){if(e.key==='Enter')save();if(e.key==='Escape')modal.remove();});
+            modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+        };
+
+        // Apply saved theme, font size and sidebar state before render
+        (function() {
+            const t = localStorage.getItem('oc-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            const f = localStorage.getItem('oc-font');
+            if (f) document.documentElement.style.setProperty('--markdown-model-font-size', f);
+            if (localStorage.getItem('oc-sidebar') === 'collapsed') {
+                document.documentElement.classList.add('oc-collapsed');
+            }
+        })();
+
+        // Mermaid diagram rendering
+        (function() {
+            if (typeof mermaid === 'undefined') return;
+            const isDark = localStorage.getItem('oc-theme') !== 'light';
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: isDark ? 'dark' : 'base',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                fontSize: 14,
+                securityLevel: 'loose'
+            });
+
+            // Mermaid diagram keyword pattern
+            const MERMAID_RE = /^\s*(flowchart|graph\s+[A-Z]+|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitGraph|journey|quadrantChart|xychart|block|packet|timeline|mindmap|sankey|zenuml)/i;
+
+            let debounceTimer = null;
+            function scheduleRender() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(renderMermaid, 300);
+            }
+
+            function isGenerating() {
+                // Stop button is only present during active streaming generation
+                return !!document.querySelector('button[title="Stop generating"]');
+            }
+
+            function renderMermaid() {
+                // Skip while streaming — diagram is incomplete, would flicker
+                if (isGenerating()) return;
+
+                // 1. Match by class (standard markdown renderers)
+                document.querySelectorAll('code.language-mermaid, code.mermaid, pre.language-mermaid, pre.mermaid').forEach(processEl);
+
+                // 2. Fallback: detect by content in ANY code block
+                document.querySelectorAll('pre code, pre').forEach(function(el) {
+                    var text = (el.textContent || '').trim();
+                    if (MERMAID_RE.test(text)) processEl(el);
+                });
+            }
+
+            function processEl(el) {
+                var pre = el.tagName === 'PRE' ? el : (el.closest('pre') || el.parentElement);
+                if (!pre) return;
+                if (pre.dataset.mermaidDone || pre.closest('[data-mermaid-wrap]')) return;
+                pre.dataset.mermaidDone = '1';
+
+                var text = (el.textContent || '').trim();
+                if (!text || !MERMAID_RE.test(text)) return;
+
+                var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+                var btnCss = 'padding:2px 9px;border-radius:6px;border:1px solid '+(dark?'#3f3f3f':'#c5cdd8')+';background:transparent;color:'+(dark?'#c0c0d0':'#4b5563')+';font-size:0.72rem;cursor:pointer;font-family:inherit;';
+
+                // Outer wrapper
+                var wrap = document.createElement('div');
+                wrap.setAttribute('data-mermaid-wrap', '1');
+                wrap.style.cssText = 'border:1px solid '+(dark?'#3f3f3f':'#c5cdd8')+';border-radius:10px;overflow:hidden;margin:0.5rem 0;';
+
+                // Toolbar
+                var toolbar = document.createElement('div');
+                toolbar.style.cssText = 'display:flex;justify-content:flex-end;gap:0.35rem;padding:5px 8px;background:'+(dark?'#2a2a2a':'#f0f0f2')+';border-bottom:1px solid '+(dark?'#3f3f3f':'#c5cdd8')+';';
+
+                // Copy button
+                var copyBtn = document.createElement('button');
+                copyBtn.type = 'button'; copyBtn.textContent = 'Copy'; copyBtn.style.cssText = btnCss;
+                copyBtn.onclick = function() {
+                    navigator.clipboard.writeText(text).then(function() {
+                        copyBtn.textContent = '✓ Copied';
+                        setTimeout(function() { copyBtn.textContent = 'Copy'; }, 1500);
+                    });
+                };
+
+                // Toggle button (Graph ↔ Text)
+                var showGraph = true;
+                var toggleBtn = document.createElement('button');
+                toggleBtn.type = 'button'; toggleBtn.textContent = 'Text'; toggleBtn.style.cssText = btnCss;
+                toggleBtn.onclick = function() {
+                    showGraph = !showGraph;
+                    graphArea.style.display = showGraph ? '' : 'none';
+                    textArea.style.display = showGraph ? 'none' : '';
+                    toggleBtn.textContent = showGraph ? 'Text' : 'Graph';
+                };
+
+                toolbar.appendChild(copyBtn);
+                toolbar.appendChild(toggleBtn);
+
+                // Graph area
+                var graphArea = document.createElement('div');
+                graphArea.style.cssText = 'overflow-x:auto;padding:1rem;text-align:center;';
+                var mermaidDiv = document.createElement('div');
+                mermaidDiv.className = 'mermaid';
+                mermaidDiv.textContent = text;
+                graphArea.appendChild(mermaidDiv);
+
+                // Text area (hidden by default)
+                var textArea = document.createElement('pre');
+                textArea.style.cssText = 'display:none;margin:0;padding:1rem 1.25rem;overflow-x:auto;font-size:0.85rem;line-height:1.5;';
+                var codeEl = document.createElement('code');
+                codeEl.textContent = text;
+                textArea.appendChild(codeEl);
+
+                wrap.appendChild(toolbar);
+                wrap.appendChild(graphArea);
+                wrap.appendChild(textArea);
+                pre.replaceWith(wrap);
+
+                mermaid.run({ nodes: [mermaidDiv] }).catch(function(e) {
+                    console.warn('Mermaid:', e);
+                    wrap.replaceWith(pre);
+                });
+            }
+
+            // Watch DOM changes — also fires when Stop button disappears (generation ends)
+            var wasGenerating = false;
+            var obs = new MutationObserver(function(muts) {
+                var nowGenerating = isGenerating();
+                // Trigger render when generation just finished
+                if (wasGenerating && !nowGenerating) {
+                    setTimeout(renderMermaid, 100);
+                }
+                wasGenerating = nowGenerating;
+                // Also schedule on new nodes (but skip if currently generating)
+                if (!nowGenerating) {
+                    for (var i = 0; i < muts.length; i++) {
+                        if (muts[i].addedNodes.length) { scheduleRender(); return; }
+                    }
+                }
+            });
+            obs.observe(document.documentElement, { childList: true, subtree: true });
+
+            // Initial render attempts
+            setTimeout(renderMermaid, 300);
+            setTimeout(renderMermaid, 1000);
+        })();
+
+        // Code block copy buttons
+        (function() {
+            function copyText(text, btn) {
+                function done() {
+                    btn.textContent = '✓ Copied';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+                }
+                function fallback() {
+                    var ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+                    document.body.appendChild(ta);
+                    ta.focus(); ta.select();
+                    try { document.execCommand('copy'); done(); } catch(e) {}
+                    document.body.removeChild(ta);
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(done).catch(fallback);
+                } else {
+                    fallback();
+                }
+            }
+            function addCopyButtons() {
+                document.querySelectorAll('pre').forEach(function(pre) {
+                    if (pre.dataset.copyDone || pre.dataset.mermaidDone || pre.closest('[data-mermaid-wrap]')) return;
+                    var codeEl = pre.querySelector('code');
+                    var text = (codeEl ? codeEl.textContent : pre.textContent || '').trim();
+                    if (!text) return;
+                    pre.dataset.copyDone = '1';
+                    var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'oc-copy-btn';
+                    btn.textContent = 'Copy';
+                    btn.style.cssText = 'border:1px solid ' + (dark ? '#3f3f3f' : '#c5cdd8') + ';background:' + (dark ? '#1e1e1e' : '#fff') + ';color:' + (dark ? '#c0c0d0' : '#4b5563') + ';';
+                    btn.onclick = function() { copyText(text, btn); };
+                    pre.appendChild(btn);
+                });
+            }
+            var copyObs = new MutationObserver(function(muts) {
+                for (var i = 0; i < muts.length; i++) {
+                    if (muts[i].addedNodes.length) { setTimeout(addCopyButtons, 80); return; }
+                }
+            });
+            copyObs.observe(document.documentElement, { childList: true, subtree: true });
+            setTimeout(addCopyButtons, 300);
+        })();
+
         import {MarkdownUp} from './markdown-up/lib/app.js';
         const app = new MarkdownUp(window, {
             'systemPrefix': './markdown-up/include/',

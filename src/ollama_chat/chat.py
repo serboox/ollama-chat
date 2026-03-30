@@ -23,13 +23,14 @@ from .ollama import ollama_chat
 
 # The ollama chat manager class
 class ChatManager():
-    __slots__ = ('app', 'conversation_id', 'prompts', 'stop')
+    __slots__ = ('app', 'conversation_id', 'prompts', 'images', 'stop')
 
 
-    def __init__(self, app, conversation_id, prompts):
+    def __init__(self, app, conversation_id, prompts, images=None):
         self.app = app
         self.conversation_id = conversation_id
         self.prompts = list(prompts)
+        self.images = list(images) if images else []  # base64 images for the first message
         self.stop = False
 
         # Start the chat thread
@@ -45,27 +46,45 @@ class ChatManager():
                 # Create the Ollama messages from the conversation
                 messages = []
                 flags = {}
+                options = None
                 with chat.app.config() as config:
                     conversation = config_conversation(config, chat.conversation_id)
                     model = conversation['model']
+
+                    # Read and parse model options
+                    raw_options = config.get('modelOptions') or {}
+                    if raw_options:
+                        options = _parse_model_options(raw_options)
+
+                    # Read thinking mode override (None = auto-detect)
+                    thinking_override = conversation.get('thinkingEnabled')
 
                     # Add the next user prompt
                     conversation['exchanges'].append({'user': chat.prompts[0], 'model': ''})
                     del chat.prompts[0]
 
                     # Process user prompt commands append to messages (unless there's a "do" command)
-                    for exchange in conversation['exchanges']:
+                    # Images attached via UI are only sent with the first (new) message
+                    ui_images = list(chat.images)
+                    chat.images = []  # clear after first use
+                    is_last_exchange = True
+                    total_exchanges = len(conversation['exchanges'])
+                    for ix_exc, exchange in enumerate(conversation['exchanges']):
                         flags = {}
                         user_content = _process_commands(chat, exchange['user'], flags)
                         if 'do' not in flags:
-                            messages.append({'role': 'user', 'content': user_content, 'images': flags.get('images')})
+                            # Merge UI images into the last (current) message
+                            combined_images = (flags.get('images') or [])
+                            if ix_exc == total_exchanges - 1 and ui_images:
+                                combined_images = combined_images + ui_images
+                            messages.append({'role': 'user', 'content': user_content, 'images': combined_images or None})
                             if exchange['model'] != '':
                                 messages.append({'role': 'assistant', 'content': exchange['model']})
 
                     # Help command?
                     if 'help' in flags:
                         exchange = conversation['exchanges'][-1]
-                        exchange['model'] = f'```\n{flags["help"].strip()}\n```'
+                        exchange['model'] = flags['help'].strip()
                         continue
 
                     # Show command?
@@ -101,7 +120,7 @@ class ChatManager():
                         continue
 
                 # Stream the chat response
-                for chunk in ollama_chat(chat.app.pool_manager, model, messages):
+                for chunk in ollama_chat(chat.app.pool_manager, model, messages, options, thinking=thinking_override):
                     if chat.stop:
                         break
 
@@ -115,6 +134,15 @@ class ChatManager():
                             exchange['thinking'] += chunk['message']['thinking']
                         else:
                             exchange['model'] += chunk['message']['content']
+                        if chunk.get('done'):
+                            if chunk.get('prompt_eval_count') is not None:
+                                exchange['promptTokens'] = chunk['prompt_eval_count']
+                            if chunk.get('eval_count') is not None:
+                                exchange['responseTokens'] = chunk['eval_count']
+                            if chunk.get('context_length') is not None:
+                                exchange['contextSize'] = chunk['context_length']
+                            if chunk.get('model_supports_thinking') is not None:
+                                exchange['modelSupportsThinking'] = chunk['model_supports_thinking']
                 if chat.stop:
                     break
 
@@ -130,6 +158,27 @@ class ChatManager():
             # Delete the application's chat entry
             if chat.conversation_id in chat.app.chats:
                 del chat.app.chats[chat.conversation_id]
+
+
+# Helper to parse model option string values to appropriate Python types
+def _parse_model_options(raw_options):
+    result = {}
+    for key, value in raw_options.items():
+        try:
+            result[key] = int(value)
+            continue
+        except (ValueError, TypeError):
+            pass
+        try:
+            result[key] = float(value)
+            continue
+        except (ValueError, TypeError):
+            pass
+        if isinstance(value, str) and value.lower() in ('true', 'false'):
+            result[key] = value.lower() == 'true'
+            continue
+        result[key] = value
+    return result
 
 
 # Helper to find a conversation by ID
@@ -171,7 +220,7 @@ def _process_commands(chat, prompt, flags):
         actual_prompt = _R_COMMAND.sub(functools.partial(_process_commands_sub, chat, flags), prompt)
     return actual_prompt
 
-_R_COMMAND = re.compile(r'^/(?P<cmd>\?|dir|do|file|image|url)(?P<args> .*)?$', re.MULTILINE)
+_R_COMMAND = re.compile(r'^/(?P<cmd>do|file|image)(?P<args> .*)?$', re.MULTILINE)
 
 
 # Command prompt regex substitution function
@@ -272,7 +321,23 @@ def _process_commands_sub(chat, flags, match):
 
     # Top-level help...
     # elif command == '?':
-    flags['help'] = _COMMAND_PARSER.format_help().replace('usage: / ', 'usage: /')
+    flags['help'] = """\
+### Prompt Commands
+
+Type these commands anywhere in your message to include extra content:
+
+| Command | Description | Example |
+|---|---|---|
+| `/file <path>` | Include a file's content | `/file /home/user/script.py` |
+| `/dir <path> <ext>` | Include files from a directory | `/dir /home/user/project py -d 2` |
+| `/image <path>` | Include an image (vision models) | `/image /home/user/photo.png` |
+| `/url <url>` | Include content from a URL | `/url https://example.com/page` |
+| `/do <name>` | Run a conversation template | `/do my-template -v key value` |
+
+**`/file` and `/dir` options:** `-n` preview without sending.
+**`/dir` options:** `-d <depth>` recursion depth · `-e <ext>` extra extension · `-x <path>` exclude.
+**`/do` options:** `-v <var> <value>` set template variable.
+"""
     return 'Displaying top-level help'
 
 
@@ -282,7 +347,8 @@ class CommandHelpAction(argparse.Action):
         super().__init__(option_strings, dest, nargs=0, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        raise CommandHelpError(parser.format_help().replace('usage: / ', 'usage: /'))
+        raise CommandHelpError(parser.format_usage().replace('usage: / ', '`/').rstrip() + '`\n\n' + \
+            '\n'.join(f'- **`{o.option_strings[0]}`** {o.help}' for o in parser._actions if o.option_strings and o.help))
 
 
 # Prompt command argument parser help action exception
@@ -296,15 +362,6 @@ if sys.version_info >= (3, 14): # pragma: no cover
     _COMMAND_PARSER_ARGS['color'] = False
 _COMMAND_PARSER = argparse.ArgumentParser(**_COMMAND_PARSER_ARGS)
 _COMMAND_SUBPARSERS = _COMMAND_PARSER.add_subparsers(dest='command')
-_COMMAND_PARSER_HELP = _COMMAND_SUBPARSERS.add_parser('?', add_help=False, exit_on_error=False, help='show prompt command help')
-_COMMAND_PARSER_DIR = _COMMAND_SUBPARSERS.add_parser('dir', add_help=False, exit_on_error=False, help='include files from a directory')
-_COMMAND_PARSER_DIR.add_argument('dir', help='the directory path')
-_COMMAND_PARSER_DIR.add_argument('ext', help='the file extension')
-_COMMAND_PARSER_DIR.add_argument('-d', dest='depth', metavar='N', type=int, default=1, help='maximum file recursion depth (default is 1)')
-_COMMAND_PARSER_DIR.add_argument('-e', dest='extra_ext', metavar='EXT', action='append', help='additional file extension')
-_COMMAND_PARSER_DIR.add_argument('-h', dest='help', action=CommandHelpAction, help='show help')
-_COMMAND_PARSER_DIR.add_argument('-n', dest='show', action='store_true', help='respond with user prompt')
-_COMMAND_PARSER_DIR.add_argument('-x', dest='exclude', metavar='PATH', action='append', help='exclude file or directory')
 _COMMAND_PARSER_DO = _COMMAND_SUBPARSERS.add_parser('do', add_help=False, exit_on_error=False, help='execute a conversation template')
 _COMMAND_PARSER_DO.add_argument('name', help='the template name')
 _COMMAND_PARSER_DO.add_argument('-h', dest='help', action=CommandHelpAction, help='show help')
@@ -317,10 +374,6 @@ _COMMAND_PARSER_IMAGE = _COMMAND_SUBPARSERS.add_parser('image', add_help=False, 
 _COMMAND_PARSER_IMAGE.add_argument('image', help='the image path')
 _COMMAND_PARSER_IMAGE.add_argument('-h', dest='help', action=CommandHelpAction, help='show help')
 _COMMAND_PARSER_IMAGE.add_argument('-n', dest='show', action='store_true', help='respond with user prompt')
-_COMMAND_PARSER_URL = _COMMAND_SUBPARSERS.add_parser('url', add_help=False, exit_on_error=False, help='include a URL resource')
-_COMMAND_PARSER_URL.add_argument('url', help='the resource URL')
-_COMMAND_PARSER_URL.add_argument('-h', dest='help', action=CommandHelpAction, help='show help')
-_COMMAND_PARSER_URL.add_argument('-n', dest='show', action='store_true', help='respond with user prompt')
 
 
 # Helper to produce file text content

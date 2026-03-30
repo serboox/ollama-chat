@@ -57,8 +57,17 @@ class OllamaChat(chisel.Application):
         self.add_request(move_template)
         self.add_request(regenerate_conversation_exchange)
         self.add_request(reply_conversation)
+        self.add_request(set_conversation_thinking)
         self.add_request(set_conversation_title)
+        self.add_request(check_grammar)
+        self.add_request(clear_model)
+        self.add_request(execute_curl)
+        self.add_request(fetch_url)
+        self.add_request(read_directory)
+        self.add_request(translate_text)
+        self.add_request(get_model_info)
         self.add_request(set_model)
+        self.add_request(set_model_options)
         self.add_request(start_conversation)
         self.add_request(start_template)
         self.add_request(stop_conversation)
@@ -99,21 +108,40 @@ _CONTENT_TYPES = {
 }
 
 
+# Keys that are persisted to the settings file (always saved, regardless of noSave)
+_SETTINGS_KEYS = ('model', 'modelOptions', 'templates')
+
+
 # The ollama-chat configuration context manager
 class ConfigManager:
-    __slots__ = ('config_path', 'config_lock', 'config')
+    __slots__ = ('config_path', 'settings_path', 'config_lock', 'config')
 
 
     def __init__(self, config_path):
         self.config_path = config_path
         self.config_lock = threading.Lock()
 
-        # Ensure the config file exists with default config if it doesn't exist
+        # Derive the settings file path (same dir, "-settings" suffix)
+        base, ext = os.path.splitext(config_path)
+        self.settings_path = base + '-settings' + ext
+
+        # Load main config
         if os.path.isfile(self.config_path):
             with open(self.config_path, 'r', encoding='utf-8') as fh_config:
                 self.config = schema_markdown.validate_type(OLLAMA_CHAT_TYPES, 'OllamaChatConfig', json.loads(fh_config.read()))
         else:
             self.config = {'conversations': []}
+
+        # Load settings file and apply with highest priority
+        if os.path.isfile(self.settings_path):
+            try:
+                with open(self.settings_path, 'r', encoding='utf-8') as fh_settings:
+                    settings = json.loads(fh_settings.read())
+                for key in _SETTINGS_KEYS:
+                    if key in settings:
+                        self.config[key] = settings[key]
+            except Exception:  # pragma: no cover
+                pass
 
 
     @contextmanager
@@ -125,10 +153,16 @@ class ConfigManager:
             # Yield the config on context entry
             yield self.config
 
-            # Save the config file on context exit, if requested
-            if save and not self.config.get('noSave'):
-                with open(self.config_path, 'w', encoding='utf-8') as fh_config:
-                    json.dump(self.config, fh_config, indent=4, sort_keys = True)
+            if save:
+                # Always save model options, model name and templates to settings file
+                settings = {k: self.config[k] for k in _SETTINGS_KEYS if k in self.config}
+                with open(self.settings_path, 'w', encoding='utf-8') as fh_settings:
+                    json.dump(settings, fh_settings, indent=4, sort_keys=True)
+
+                # Save full config only when noSave is not set
+                if not self.config.get('noSave'):
+                    with open(self.config_path, 'w', encoding='utf-8') as fh_config:
+                        json.dump(self.config, fh_config, indent=4, sort_keys=True)
         finally:
             # Release the config lock
             self.config_lock.release()
@@ -202,13 +236,281 @@ def get_conversations(ctx, unused_req):
         }
         if 'model' in config:
             response['model'] = config['model']
+        if 'modelOptions' in config:
+            response['modelOptions'] = config['modelOptions']
         return response
+
+
+@chisel.action(name='translateText', types=OLLAMA_CHAT_TYPES)
+def translate_text(ctx, req):
+    from .ollama import _get_ollama_url
+    with ctx.app.config() as config:
+        model = config.get('model')
+    if not model:
+        raise chisel.ActionError('NoModel')
+    text = req['text']
+    from_lang = req['fromLang']
+    to_lang = req['toLang']
+    level = req.get('level')
+    style = req.get('style')
+    tone = req.get('tone')
+    prompt = f'Translate the following text from {from_lang} to {to_lang}.'
+    if level:
+        prompt += f' Use {level} language level (CEFR scale).'
+    if style:
+        prompt += f' Style: {style}.'
+    if tone:
+        prompt += f' Tone: {tone}.'
+    prompt += '\nOutput ONLY the translation, no explanations:\n\n' + text
+    url = _get_ollama_url('/api/chat')
+    data = {
+        'model': model,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'stream': False
+    }
+    response = ctx.app.pool_manager.request('POST', url, json=data, retries=0)
+    try:
+        if response.status != 200:
+            raise chisel.ActionError('TranslationFailed')
+        result = response.json()
+        translation = result.get('message', {}).get('content', '').strip()
+    finally:
+        response.close()
+    return {'translation': translation}
+
+
+@chisel.action(name='checkGrammar', types=OLLAMA_CHAT_TYPES)
+def check_grammar(ctx, req):
+    import json as _json
+    from .ollama import _get_ollama_url
+    with ctx.app.config() as config:
+        model = config.get('model')
+    if not model:
+        raise chisel.ActionError('NoModel')
+
+    text = req['text']
+    text_lang = req.get('textLanguage') or 'auto'
+    hint_lang = req.get('hintLanguage') or 'auto'
+
+    lang_instr = f'The text is written in: {text_lang}.' if text_lang != 'auto' else 'Detect the text language automatically.'
+    hint_instr = f'Write all explanations in {hint_lang}.' if hint_lang != 'auto' else 'Write explanations in the same language as the text.'
+
+    prompt = (
+        f'You are a professional proofreader. Fix grammar, spelling, and punctuation.\n'
+        f'{lang_instr}\n{hint_instr}\n\n'
+        f'Return ONLY a JSON object with this exact structure:\n'
+        f'{{"detectedLanguage":"English","corrected":"full corrected text","changes":'
+        f'[{{"original":"wrong","corrected":"right","explanation":"reason"}}]}}\n\n'
+        f'If no errors found, return changes as []. Do not add any text outside the JSON.\n\n'
+        f'Text to proofread:\n{text}'
+    )
+
+    url = _get_ollama_url('/api/chat')
+    data = {'model': model, 'messages': [{'role': 'user', 'content': prompt}],
+            'stream': False, 'format': 'json'}
+    response = ctx.app.pool_manager.request('POST', url, json=data, retries=0)
+    try:
+        if response.status != 200:
+            raise chisel.ActionError('CheckFailed', f'Model request failed ({response.status})')
+        result = response.json()
+        content = result.get('message', {}).get('content', '{}')
+    finally:
+        response.close()
+
+    try:
+        parsed = _json.loads(content)
+    except (ValueError, TypeError):
+        # Try to extract JSON from response
+        import re
+        m = re.search(r'\{.*\}', content, re.DOTALL)
+        if m:
+            try:
+                parsed = _json.loads(m.group())
+            except (ValueError, TypeError):
+                raise chisel.ActionError('CheckFailed', 'Model returned invalid JSON')
+        else:
+            raise chisel.ActionError('CheckFailed', 'Model returned invalid JSON')
+
+    changes = [
+        {'original': c.get('original', ''), 'corrected': c.get('corrected', ''),
+         'explanation': c.get('explanation', '')}
+        for c in parsed.get('changes', [])
+        if c.get('original') and c.get('corrected') and c['original'] != c['corrected']
+    ]
+    return {
+        'detectedLanguage': parsed.get('detectedLanguage', '?'),
+        'correctedText': parsed.get('corrected', text),
+        'changes': changes
+    }
+
+
+@chisel.action(name='executeCurl', types=OLLAMA_CHAT_TYPES)
+def execute_curl(ctx, req):
+    import re
+    cmd = req['command'].strip()
+    # Remove leading 'curl' token and backslash line-continuations
+    cmd = re.sub(r'^curl\s+', '', cmd)
+    cmd = cmd.replace('\\\n', ' ').replace('\\\r\n', ' ')
+    # Parse: extract URL, method, headers, body
+    method = 'GET'
+    headers = {}
+    body = None
+    url = None
+    i, tokens = 0, _curl_tokenize(cmd)
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ('-X', '--request') and i + 1 < len(tokens):
+            method = tokens[i + 1]; i += 2
+        elif tok in ('-H', '--header') and i + 1 < len(tokens):
+            hdr = tokens[i + 1]
+            if ':' in hdr:
+                k, v = hdr.split(':', 1)
+                headers[k.strip()] = v.strip()
+            i += 2
+        elif tok in ('-d', '--data', '--data-raw', '--data-binary') and i + 1 < len(tokens):
+            body = tokens[i + 1]; method = method if method != 'GET' else 'POST'; i += 2
+        elif tok in ('--location', '-L', '--compressed', '--silent', '-s', '--verbose', '-v'):
+            i += 1
+        elif not tok.startswith('-') and url is None:
+            url = tok; i += 1
+        else:
+            i += 1
+    if not url:
+        raise chisel.ActionError('CurlFailed', 'No URL found in curl command')
+    kwargs = {'headers': headers, 'retries': False}
+    if body:
+        kwargs['body'] = body.encode('utf-8') if isinstance(body, str) else body
+    try:
+        response = ctx.app.pool_manager.request(method, url, **kwargs)
+        try:
+            if response.status >= 400:
+                raise chisel.ActionError('CurlFailed', f'HTTP {response.status} from {url}')
+            content = response.data.decode('utf-8', errors='replace')
+        finally:
+            response.close()
+    except chisel.ActionError:
+        raise
+    except Exception as exc:
+        raise chisel.ActionError('CurlFailed', str(exc))
+    return {'content': f'<curl response from {url}>\n{content}\n</curl response>'}
+
+
+def _curl_tokenize(s):
+    """Split curl command into tokens respecting quotes."""
+    import shlex
+    try:
+        return shlex.split(s)
+    except ValueError:
+        return s.split()
+
+
+@chisel.action(name='readDirectory', types=OLLAMA_CHAT_TYPES)
+def read_directory(ctx, req):
+    import pathlib, os
+    dir_path = str(pathlib.Path(pathlib.PurePosixPath(req['path'])))
+    if not os.path.isdir(dir_path):
+        raise chisel.ActionError('DirectoryNotFound', f'Directory not found: {dir_path}')
+    ext = req.get('ext', '')
+    depth = req.get('depth', 1)
+    file_exts = {(ext if ext.startswith('.') else f'.{ext}')} if ext else set()
+    from .chat import _get_directory_files, _command_file_content
+    parts = []
+    try:
+        for file_name in sorted(_get_directory_files(dir_path, max(0, depth - 1), file_exts) if file_exts else _get_directory_files(dir_path, max(0, depth - 1), None)):
+            file_posix = pathlib.Path(file_name).as_posix()
+            try:
+                with open(file_name, 'r', encoding='utf-8') as fh:
+                    parts.append(_command_file_content(file_posix, fh.read(), False))
+            except Exception:
+                pass
+    except Exception as exc:
+        raise chisel.ActionError('DirectoryNotFound', str(exc))
+    if not parts:
+        raise chisel.ActionError('DirectoryNotFound', f'No files found in {dir_path}')
+    return {'content': '\n\n'.join(parts)}
+
+
+@chisel.action(name='fetchUrl', types=OLLAMA_CHAT_TYPES)
+def fetch_url(ctx, req):
+    import urllib3
+    url = req['url']
+    try:
+        response = ctx.app.pool_manager.request('GET', url, retries=0)
+        try:
+            if response.status != 200:
+                raise chisel.ActionError('FetchFailed', f'HTTP {response.status} fetching {url}')
+            text = response.data.decode('utf-8')
+        finally:
+            response.close()
+    except chisel.ActionError:
+        raise
+    except Exception as exc:
+        raise chisel.ActionError('FetchFailed', str(exc))
+    return {'content': f'<{url}>\n{text}\n</{url}>'}
+
+
+@chisel.action(name='clearModel', types=OLLAMA_CHAT_TYPES)
+def clear_model(ctx, unused_req):
+    with ctx.app.config(save=True) as config:
+        config.pop('model', None)
+
+
+@chisel.action(name='getModelInfo', types=OLLAMA_CHAT_TYPES)
+def get_model_info(ctx, req):
+    from .ollama import _get_ollama_url
+    model = req['model']
+    url_show = _get_ollama_url('/api/show')
+    response_show = ctx.app.pool_manager.request('POST', url_show, json={'model': model}, retries=0)
+    try:
+        if response_show.status != 200:
+            raise chisel.ActionError('UnknownModel', f'Unknown model "{model}"')
+        model_show = response_show.json()
+    finally:
+        response_show.close()
+    # Read configured num_ctx from model's parameters text (explicit Modelfile override)
+    context_length = None
+    for line in model_show.get('parameters', '').splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[0] == 'num_ctx':
+            try:
+                context_length = int(parts[1])
+            except ValueError:
+                pass
+            break
+
+    # Read architectural context length from model_info (e.g. qwen3.context_length, llama.context_length)
+    arch_context_length = None
+    for key, value in model_show.get('model_info', {}).items():
+        if key.endswith('.context_length'):
+            try:
+                arch_context_length = int(value)
+            except (ValueError, TypeError):
+                pass
+            break
+
+    # Effective context: explicit param > architecture value
+    effective = context_length if context_length is not None else arch_context_length
+
+    result = {'contextLength': effective if effective is not None else 2048}
+    if arch_context_length is not None:
+        result['maxContextLength'] = arch_context_length
+    return result
 
 
 @chisel.action(name='setModel', types=OLLAMA_CHAT_TYPES)
 def set_model(ctx, req):
     with ctx.app.config(save=True) as config:
         config['model'] = req['model']
+
+
+@chisel.action(name='setModelOptions', types=OLLAMA_CHAT_TYPES)
+def set_model_options(ctx, req):
+    with ctx.app.config(save=True) as config:
+        options = req.get('options') or {}
+        if options:
+            config['modelOptions'] = options
+        elif 'modelOptions' in config:
+            del config['modelOptions']
 
 
 @chisel.action(name='moveConversation', types=OLLAMA_CHAT_TYPES)
@@ -310,7 +612,7 @@ def start_conversation(ctx, req):
         config['conversations'].insert(0, conversation)
 
         # Start the model chat
-        ctx.app.chats[id_] = ChatManager(ctx.app, id_, [user_prompt])
+        ctx.app.chats[id_] = ChatManager(ctx.app, id_, [user_prompt], images=req.get('images'))
 
         # Return the new conversation identifier
         return {'id': id_}
@@ -349,7 +651,7 @@ def start_template(ctx, req):
         config['conversations'].insert(0, conversation)
 
         # Start the model chat
-        ctx.app.chats[id_] = ChatManager(ctx.app, id_, prompts)
+        ctx.app.chats[id_] = ChatManager(ctx.app, id_, prompts, images=None)
 
         # Return the new conversation identifier
         return {'id': id_}
@@ -404,7 +706,23 @@ def reply_conversation(ctx, req):
             raise chisel.ActionError('ConversationBusy')
 
         # Start the model chat
-        ctx.app.chats[id_] = ChatManager(ctx.app, id_, [req['user']])
+        ctx.app.chats[id_] = ChatManager(ctx.app, id_, [req['user']], images=req.get('images'))
+
+
+@chisel.action(name='setConversationThinking', types=OLLAMA_CHAT_TYPES)
+def set_conversation_thinking(ctx, req):
+    with ctx.app.config(save=True) as config:
+        id_ = req['id']
+        conversation = config_conversation(config, id_)
+        if conversation is None:
+            raise chisel.ActionError('UnknownConversationID')
+        if id_ in ctx.app.chats:
+            raise chisel.ActionError('ConversationBusy')
+        enabled = req.get('enabled')
+        if enabled is None:
+            conversation.pop('thinkingEnabled', None)
+        else:
+            conversation['thinkingEnabled'] = enabled
 
 
 @chisel.action(name='setConversationTitle', types=OLLAMA_CHAT_TYPES)
@@ -501,7 +819,7 @@ def regenerate_conversation_exchange(ctx, req):
             del exchanges[-1]
 
             # Start the model chat
-            ctx.app.chats[id_] = ChatManager(ctx.app, id_, [prompt])
+            ctx.app.chats[id_] = ChatManager(ctx.app, id_, [prompt], images=None)
 
 
 @chisel.action(name='getModels', types=OLLAMA_CHAT_TYPES)

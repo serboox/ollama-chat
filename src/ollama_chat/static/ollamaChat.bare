@@ -20,6 +20,18 @@ async function ollamaChatMain():
         ollamaChatModelsDownloadPage(args)
     elif view == 'models':
         ollamaChatModelsPage(args)
+    elif view == 'grammar':
+        ollamaChatGrammarPage(args)
+    elif view == 'translate':
+        ollamaChatTranslatePage(args)
+    elif view == 'help':
+        ollamaChatHelpPage(args)
+    elif view == 'templates':
+        ollamaChatTemplatesPage(args)
+    elif view == 'options':
+        ollamaChatOptionsPage(args)
+    elif view == 'settings':
+        ollamaChatSettingsPage(args)
     elif view == 'template':
         ollamaChatTemplatePage(args)
     elif view == 'variables':
@@ -30,176 +42,201 @@ async function ollamaChatMain():
 endfunction
 
 
-# The Ollama Chat index page
+# The Ollama Chat index page — shows centered input when model is selected
 async function ollamaChatIndexPage(args):
-    action = objectGet(args, 'action')
-    actionID = objectGet(args, 'actionID')
+    lang = objectGet(args, 'lang')
 
     # Get the conversations
     conversationsResponse = systemFetch('getConversations')
     conversationsResponse = if(conversationsResponse != null, jsonParse(conversationsResponse))
     if conversationsResponse == null:
-        ollamaChatErrorPage('Failed to get conversations')
+        ollamaChatErrorPage(tr(lang, 'failed_conversations'))
         return
     endif
 
-    # Render the title
+    # Render the sidebar
+    ollamaChatSidebar(null, lang)
+
     documentSetTitle(ollamaChatTitle)
-    markdownPrint('# ' + markdownEscape(ollamaChatTitle))
-
-    # Get the current model
     currentModel = objectGet(conversationsResponse, 'model')
+
+    # No model selected — show welcome/onboarding screen
     if !currentModel:
-        markdownPrint( \
-            '', \
-            'Welcome to Ollama Chat! Please select a model to begin.', \
-            '', \
-            argsLink(ollamaChatArguments, 'Select Model', {'view': 'models'}) \
-        )
+        elementModelRender({ \
+            'html': 'div', \
+            'attr': {'style': 'display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; text-align: center; gap: 1.5rem;'}, \
+            'elem': [ \
+                {'html': 'div', 'attr': {'style': 'font-size: 3rem;'}, 'elem': {'text': '🦙'}}, \
+                {'html': 'h1', 'attr': {'style': 'font-size: 1.75rem; color: var(--oc-text); margin: 0;'}, 'elem': {'text': tr(lang, 'welcome')}}, \
+                {'html': 'p', 'attr': {'style': 'color: var(--oc-text-2); margin: 0; max-width: 400px; line-height: 1.6;'}, 'elem': {'text': tr(lang, 'welcome_subtitle')}}, \
+                { \
+                    'html': 'a', \
+                    'attr': { \
+                        'href': argsURL(ollamaChatArguments, {'view': 'models'}, false), \
+                        'style': 'display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 10px; background: var(--oc-accent); color: white; font-size: 1rem; font-weight: 500; text-decoration: none;', \
+                        'onmouseover': "this.style.background='#0a7a5e';", \
+                        'onmouseout': "this.style.background=document.documentElement.getAttribute('data-theme')==='light'?'#0d8f6e':'#10a37f';" \
+                    }, \
+                    'elem': [ollamaChatSVG(ollamaChatIconCheck, '18'), {'html': 'span', 'elem': {'text': tr(lang, 'select_model_btn')}}] \
+                } \
+            ] \
+        })
         return
     endif
 
-    # Render the menu
-    spacer = stringFromCharCode(160, 160)
-    markdownPrint('**Current Model:** ' + currentModel)
-    elementModelRender({'html': 'p', 'elem': [ \
-        formsLinkElements('Select Model', argsURL(ollamaChatArguments, {'view': 'models'})), \
-        {'text': spacer + '|' + spacer}, \
-        formsLinkElements('Start Conversation', argsURL(ollamaChatArguments, {'view': 'chat'})), \
-        {'text': spacer + '|' + spacer}, \
-        formsLinkButtonElements('Add Template', ollamaChatIndexOnAddTemplate) \
-    ]})
+    # Hidden input for image attachment
+    elementModelRender({'html': 'input', 'attr': {'type': 'hidden', 'id': 'oc-img-b64', 'value': ''}})
 
-    # Render the conversations
-    conversations = objectGet(conversationsResponse, 'conversations')
-    anyGenerating = false
-    indent = spacer + spacer
-    markdownPrint('', '## Conversations')
-    if !conversations:
-        markdownPrint('', indent + '*No conversations*')
-    else:
-        conversationTableRows = []
-        conversationTable = [ \
-            {'html': 'table', 'elem': [ \
-                {'html': 'tbody', 'elem': conversationTableRows} \
-            ]} \
-        ]
-        for conversation in conversations:
-            id = objectGet(conversation, 'id')
-            title = objectGet(conversation, 'title')
-            model = objectGet(conversation, 'model')
-            generating = objectGet(conversation, 'generating')
-            anyGenerating = anyGenerating || generating
-            selected = action == 'conversation' && actionID == id
-            conversationURL = argsURL( \
-                ollamaChatArguments, {'view': 'chat', 'id': id}, false, if(generating, ollamaChatConversationBottomID) \
-            )
-            selectText = if(selected, 'Cancel', 'Select')
-            selectURL = argsURL(ollamaChatArguments, {'action': if(!selected, 'conversation'), 'actionID': if(!selected, id)})
-            arrayPush(conversationTableRows, {'html': 'tr', 'elem': [ \
-                { \
-                    'html': 'td', 'attr': {'style': 'min-width: 10em;'}, 'elem': formsLinkElements(title, conversationURL) \
-                }, \
-                {'html': 'td', 'elem': {'text': model}}, \
-                {'html': 'td', 'elem': if(generating, \
-                    {'text': 'Generating...'}, \
-                    [ \
-                        formsLinkElements(selectText, selectURL), \
-                        if(selected, [ \
-                            {'text': spacer + '|' + spacer}, \
-                            formsLinkButtonElements('Up', systemPartial(ollamaChatIndexOnConversationAction, args, id, 'up')), \
-                            {'text': spacer}, \
-                            formsLinkButtonElements('Down', systemPartial(ollamaChatIndexOnConversationAction, args, id, 'down')), \
-                            {'text': spacer}, \
-                            formsLinkButtonElements('Delete', systemPartial(ollamaChatIndexOnConversationAction, args, id, 'delete')) \
-                        ]) \
-                    ] \
-                )} \
-            ]})
-        endfor
-        elementModelRender(conversationTable)
-    endif
+    # Model selected — centered input panel (like ChatGPT home screen)
+    modelOptions = objectGet(conversationsResponse, 'modelOptions')
+    modelLabel = currentModel + if(modelOptions != null, ' · ' + tr(lang, 'options_active'), '')
+    promptFn = systemPartial(ollamaChatIndexOnPrompt, args)
+    inputStyle = 'background: transparent; border: none; flex: 1; font-size: 1rem; font-family: inherit; color: var(--oc-text); outline: none; padding: 0.25rem 0; min-width: 0;'
 
-    # Render the conversation templates
+    # Build template chips (only shown if templates exist)
     templates = objectGet(conversationsResponse, 'templates')
-    markdownPrint('', '## Templates')
-    if !templates:
-        markdownPrint('', indent + '*No templates*')
-    else:
-        templateTableRows = []
-        templateTable = [ \
-            {'html': 'table', 'elem': [ \
-                {'html': 'tbody', 'elem': templateTableRows} \
-            ]} \
-        ]
+    templateChips = null
+    if templates:
+        templateElems = []
         for template in templates:
             templateID = objectGet(template, 'id')
             templateTitle = objectGet(template, 'title')
             templateStartFn = systemPartial(ollamaChatIndexOnRunTemplate, templateID)
-            selected = action == 'template' && actionID == templateID
-            selectText = if(selected, 'Cancel', 'Select')
-            selectURL = argsURL(ollamaChatArguments, {'action': if(!selected, 'template'), 'actionID': if(!selected, templateID)})
-            arrayPush(templateTableRows, {'html': 'tr', 'elem': [ \
-                { \
-                    'html': 'td', \
-                    'attr': {'style': 'min-width: 10em;'}, \
-                    'elem': formsLinkButtonElements(templateTitle, templateStartFn) \
+            arrayPush(templateElems, { \
+                'html': 'button', \
+                'attr': { \
+                    'type': 'button', \
+                    'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border-radius: 20px; border: 1px solid var(--oc-border); background: var(--oc-bg-2); color: var(--oc-text-2); font-size: 0.82rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                    'onmouseover': ollamaChatHoverBorderOn, \
+                    'onmouseout': ollamaChatHoverBorderOut \
                 }, \
-                {'html': 'td', 'elem': [ \
-                    formsLinkElements(selectText, selectURL), \
-                    if(selected, [ \
-                        {'text': spacer + '|' + spacer}, \
-                        formsLinkButtonElements('Up', systemPartial(ollamaChatIndexOnTemplateAction, args, templateID, 'up')), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Down', systemPartial(ollamaChatIndexOnTemplateAction, args, templateID, 'down')), \
-                        {'text': spacer}, \
-                        formsLinkElements('Edit', argsURL(ollamaChatArguments, {'view': 'template', 'id': templateID})), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Delete', systemPartial(ollamaChatIndexOnTemplateAction, args, templateID, 'delete')) \
-                    ]) \
-                ]} \
-            ]})
+                'callback': {'click': templateStartFn}, \
+                'elem': [ollamaChatSVG(ollamaChatIconTemplate, '13'), {'html': 'span', 'elem': {'text': templateTitle}}] \
+            })
         endfor
-        elementModelRender(templateTable)
+        templateChips = { \
+            'html': 'div', \
+            'attr': {'style': 'display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; max-width: 660px; margin-top: -0.25rem;'}, \
+            'elem': templateElems \
+        }
     endif
 
-    # Refresh the page?
-    if anyGenerating:
-        windowSetTimeout(systemPartial(ollamaChatIndexPage, args), ollamaChatIndexTimeoutMs)
-    endif
-endfunction
-
-
-# The index conversation-generating refresh timeout
-ollamaChatIndexTimeoutMs = 2000
-
-
-# Add template on-click event handler
-async function ollamaChatIndexOnAddTemplate():
-    # Create the new template
-    templateRequest = { \
-        'title': 'New template', \
-        'prompts': ['New prompt'] \
+    # Quick-links row: Translator + New Template — always on same line
+    newTemplateJs = "ocNewTemplate();"
+    quickLinks = { \
+        'html': 'div', \
+        'attr': {'style': 'display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; justify-content: center; margin-top: -0.25rem;'}, \
+        'elem': [ \
+            { \
+                'html': 'a', \
+                'attr': { \
+                    'href': argsURL(ollamaChatArguments, {'view': 'translate'}, false), \
+                    'style': 'display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--oc-text-3); text-decoration: none;', \
+                    'onmouseover': "this.style.color='var(--oc-accent)';", \
+                    'onmouseout': "this.style.color='var(--oc-text-3)';" \
+                }, \
+                'elem': [ollamaChatSVG(ollamaChatIconTranslate, '13'), {'html': 'span', 'elem': {'text': tr(lang, 'translator')}}] \
+            }, \
+            {'html': 'span', 'attr': {'style': 'color: var(--oc-border); font-size: 0.75rem;'}, 'elem': {'text': '·'}}, \
+            { \
+                'html': 'a', \
+                'attr': { \
+                    'href': argsURL(ollamaChatArguments, {'view': 'grammar'}, false), \
+                    'style': 'display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--oc-text-3); text-decoration: none;', \
+                    'onmouseover': "this.style.color='var(--oc-accent)';", \
+                    'onmouseout': "this.style.color='var(--oc-text-3)';" \
+                }, \
+                'elem': [ollamaChatSVG(ollamaChatIconProofread, '13'), {'html': 'span', 'elem': {'text': tr(lang, 'proofreader')}}] \
+            }, \
+            {'html': 'span', 'attr': {'style': 'color: var(--oc-border); font-size: 0.75rem;'}, 'elem': {'text': '·'}}, \
+            { \
+                'html': 'button', \
+                'attr': { \
+                    'type': 'button', \
+                    'style': 'display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--oc-text-3); background: none; border: none; cursor: pointer; font-family: inherit; padding: 0;', \
+                    'onmouseover': "this.style.color='var(--oc-accent)';", \
+                    'onmouseout': "this.style.color='var(--oc-text-3)';", \
+                    'onclick': newTemplateJs \
+                }, \
+                'elem': [ollamaChatSVG(ollamaChatIconPlus, '13'), {'html': 'span', 'elem': {'text': 'New Template'}}] \
+            } \
+        ] \
     }
-    templateResponse = systemFetch({'url': 'createTemplate', 'body': jsonStringify(templateRequest)})
-    templateResponse = if(templateResponse != null, jsonParse(templateResponse))
-    templateID = if(templateResponse != null, objectGet(templateResponse, 'id'))
 
-    # Edit the new template
-    if templateID != null:
-        windowSetLocation(argsURL(ollamaChatArguments, {'id': templateID, 'view': 'template'}))
-    endif
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'class': 'oc-home-wrap', 'style': 'display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 6rem); padding: 2rem 1rem; gap: 1.25rem; text-align: center;'}, \
+        'elem': [ \
+            {'html': 'div', 'attr': {'class': 'oc-home-emoji', 'style': 'font-size: 4rem; line-height: 1;'}, 'elem': {'text': '🦙'}}, \
+            {'html': 'h1', 'attr': {'class': 'oc-home-title', 'style': 'font-size: 1.5rem; font-weight: 600; color: var(--oc-text); margin: 0;'}, 'elem': {'text': 'What can I help you with?'}}, \
+            {'html': 'div', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-3); margin-top: -0.25rem;'}, 'elem': {'text': modelLabel}}, \
+            templateChips, \
+            quickLinks, \
+            { \
+                'html': 'div', \
+                'attr': { \
+                    'class': 'oc-home-input', \
+                    'data-oc-input-bar': '1', \
+                    'style': 'width: 100%; max-width: 660px; background: var(--oc-input-bar); border: 1px solid var(--oc-border); border-radius: 16px; padding: 0.65rem 0.65rem 0.65rem 1.25rem; display: flex; flex-direction: column; box-shadow: 0 2px 12px rgba(0,0,0,0.15);', \
+                    'ondragover': "event.preventDefault();this.style.outline='2px dashed #10a37f';this.style.outlineOffset='2px';", \
+                    'ondragleave': "this.style.outline='';this.style.outlineOffset='';", \
+                    'ondrop': "event.preventDefault();this.style.outline='';this.style.outlineOffset='';var f=event.dataTransfer.files[0];if(f)ocReadFile(f,'" + ollamaChatConversationPromptID + "');" \
+                }, \
+                'elem': { \
+                    'html': 'div', 'attr': {'style': 'display: flex; align-items: flex-end; gap: 0.5rem;'}, \
+                    'elem': [ \
+                    { \
+                        'html': 'textarea', \
+                        'attr': { \
+                            'id': ollamaChatConversationPromptID, \
+                            'placeholder': tr(lang, 'message_placeholder') + '  (type @ to attach files, images or URLs)', \
+                            'autocomplete': 'off', \
+                            'rows': '1', \
+                            'style': inputStyle + ' resize: none; overflow: hidden; line-height: 1.5; min-height: 1.5em; padding-top: 0.3rem; padding-bottom: 0.3rem;', \
+                            'oninput': "this.style.height='auto';this.style.height=Math.min(this.scrollHeight,240)+'px';ocCheckAtMention(this);", \
+                            'onkeydown': "if(event.key==='Enter'&&!event.shiftKey){ocInjectFile('" + ollamaChatConversationPromptID + "');event.preventDefault();document.getElementById('" + ollamaChatConversationPromptID + "').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));}" \
+                        }, \
+                        'callback': {'keyup': systemPartial(formsTextOnKeyup, promptFn)} \
+                    }, \
+                    { \
+                        'html': 'div', 'attr': {'style': 'margin-bottom: 1px; flex-shrink: 0;'}, \
+                        'elem': { \
+                            'html': 'button', 'attr': { \
+                                'type': 'button', 'title': 'Send message', \
+                                'style': 'display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer; background: var(--oc-text); color: var(--oc-bg); flex-shrink: 0; padding: 0;', \
+                                'onmouseover': "this.style.opacity='0.85';", \
+                                'onmouseout': "this.style.opacity='1';", \
+                                'onclick': "ocInjectFile('" + ollamaChatConversationPromptID + "');" \
+                            }, \
+                            'callback': {'click': promptFn}, \
+                            'elem': {'svg': 'svg', 'attr': {'width': '16', 'height': '16', 'viewBox': '0 0 24 24', 'fill': 'none', 'stroke': 'currentColor', 'stroke-width': '2.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round'}, 'elem': ollamaChatIconArrowUp} \
+                        } \
+                    } \
+                    ] \
+                } \
+            } \
+        ] \
+    })
+    documentSetFocus(ollamaChatConversationPromptID)
 endfunction
 
 
-# Conversation action on-click event handler
-async function ollamaChatIndexOnConversationAction(args, id, action):
-    if action == 'delete':
-        systemFetch({'url': 'deleteConversation', 'body': jsonStringify({'id': id})})
-        windowSetLocation(argsURL(ollamaChatArguments))
-    else:
-        systemFetch({'url': 'moveConversation', 'body': jsonStringify({'id': id, 'down': action == 'down'})})
-        ollamaChatIndexPage(args)
+# Start a new conversation from the home/index page
+async function ollamaChatIndexOnPrompt(args, message):
+    prompt = if(message != null, message, stringTrim(documentInputValue(ollamaChatConversationPromptID)))
+    imgB64 = stringTrim(documentInputValue('oc-img-b64'))
+    if prompt == '' && imgB64 == '':
+        return
+    endif
+    startBody = {'user': if(prompt != '', prompt, 'What is in this image?')}
+    if imgB64 != '':
+        objectSet(startBody, 'images', [imgB64])
+    endif
+    startResponse = systemFetch({'url': 'startConversation', 'body': jsonStringify(startBody)})
+    startResponse = if(startResponse != null, jsonParse(startResponse))
+    if startResponse != null:
+        id = objectGet(startResponse, 'id')
+        windowSetLocation(argsURL(ollamaChatArguments, {'view': 'chat', 'id': id}, true, ollamaChatConversationBottomID))
     endif
 endfunction
 
@@ -213,6 +250,12 @@ async function ollamaChatIndexOnTemplateAction(args, id, action):
         systemFetch({'url': 'moveTemplate', 'body': jsonStringify({'id': id, 'down': action == 'down'})})
         ollamaChatIndexPage(args)
     endif
+endfunction
+
+
+# Edit template on-click event handler
+function ollamaChatIndexOnTemplateEdit(templateID):
+    windowSetLocation(argsURL(ollamaChatArguments, {'view': 'template', 'id': templateID}))
 endfunction
 
 
@@ -242,4 +285,755 @@ async function ollamaChatIndexOnRunTemplate(templateID):
 
     # Navigate to the conversation page
     windowSetLocation(argsURL(ollamaChatArguments, {'view': 'chat', 'id': id}, false, ollamaChatConversationBottomID))
+endfunction
+
+
+# The Ollama Chat model options page
+async function ollamaChatOptionsPage(args):
+    action = objectGet(args, 'action')
+    actionID = objectGet(args, 'actionID')
+    lang = objectGet(args, 'lang')
+    spacer = stringFromCharCode(160, 160)
+
+    # Render the sidebar
+    ollamaChatSidebar(null, lang)
+
+    # Get the current options via getConversations
+    conversationsResponse = systemFetch('getConversations')
+    conversationsResponse = if(conversationsResponse != null, jsonParse(conversationsResponse))
+    if conversationsResponse == null:
+        ollamaChatErrorPage('Failed to get model options')
+        return
+    endif
+    modelOptions = objectGet(conversationsResponse, 'modelOptions')
+    if modelOptions == null:
+        modelOptions = {}
+    endif
+
+    # Render the page title
+    documentSetTitle('Model Options - ' + ollamaChatTitle)
+    markdownPrint( \
+        argsLink(ollamaChatArguments, tr(lang, 'back'), null, true), \
+        '', \
+        '# Model Options', \
+        '', \
+        'Configure options passed to Ollama when generating responses.', \
+        'Common options: `num_ctx` (context window), `temperature`, `top_p`, `top_k`, `seed`.' \
+    )
+
+    # Render existing options
+    optionKeys = objectKeys(modelOptions)
+    if arrayLength(optionKeys):
+        optTableRows = []
+        for optKey in optionKeys:
+            optVal = objectGet(modelOptions, optKey)
+            isEditing = action == 'edit' && actionID == optKey
+            if isEditing:
+                saveEditFn = systemPartial(ollamaChatOptionsOnEditSave, modelOptions, optKey)
+                arrayPush(optTableRows, {'html': 'tr', 'elem': [ \
+                    {'html': 'td', 'elem': {'html': 'b', 'elem': {'text': optKey}}}, \
+                    {'html': 'td', 'elem': formsTextElements(ollamaChatOptionsValueID, optVal, 20, saveEditFn)}, \
+                    {'html': 'td', 'elem': [ \
+                        formsLinkButtonElements('Save', saveEditFn), \
+                        {'text': spacer}, \
+                        formsLinkElements(tr(lang, 'cancel'), argsURL(ollamaChatArguments, {'view': 'options'})) \
+                    ]} \
+                ]})
+            else:
+                arrayPush(optTableRows, {'html': 'tr', 'elem': [ \
+                    {'html': 'td', 'elem': {'html': 'b', 'elem': {'text': optKey}}}, \
+                    {'html': 'td', 'elem': {'text': optVal}}, \
+                    {'html': 'td', 'elem': [ \
+                        formsLinkElements('Edit', argsURL(ollamaChatArguments, {'view': 'options', 'action': 'edit', 'actionID': optKey})), \
+                        {'text': spacer}, \
+                        formsLinkButtonElements('Remove', systemPartial(ollamaChatOptionsOnRemove, modelOptions, optKey)) \
+                    ]} \
+                ]})
+            endif
+        endfor
+        elementModelRender({'html': 'table', 'elem': {'html': 'tbody', 'elem': optTableRows}})
+        if action == 'edit':
+            documentSetFocus(ollamaChatOptionsValueID)
+        endif
+    else:
+        markdownPrint('', '*No options set.*')
+    endif
+
+    # Add new option form
+    markdownPrint('', '## Add Option')
+    if action == 'add':
+        saveAddFn = systemPartial(ollamaChatOptionsOnAddSave, modelOptions)
+        elementModelRender([ \
+            {'html': 'p', 'elem': [ \
+                {'html': 'b', 'elem': {'text': 'Key:' + stringFromCharCode(160)}}, \
+                formsTextElements(ollamaChatOptionsKeyID, '', 20, saveAddFn) \
+            ]}, \
+            {'html': 'p', 'elem': [ \
+                {'html': 'b', 'elem': {'text': 'Value:' + stringFromCharCode(160)}}, \
+                formsTextElements(ollamaChatOptionsValueID, '', 20, saveAddFn) \
+            ]}, \
+            {'html': 'p', 'elem': [ \
+                formsLinkButtonElements('Add', saveAddFn), \
+                {'text': spacer}, \
+                formsLinkElements(tr(lang, 'cancel'), argsURL(ollamaChatArguments, {'view': 'options'})) \
+            ]} \
+        ])
+        documentSetFocus(ollamaChatOptionsKeyID)
+    else:
+        elementModelRender({'html': 'p', 'elem': formsLinkElements('Add Option', argsURL(ollamaChatArguments, {'view': 'options', 'action': 'add'}))})
+    endif
+
+    # Clear all options
+    if arrayLength(optionKeys):
+        elementModelRender({'html': 'p', 'elem': formsLinkButtonElements('Clear All Options', ollamaChatOptionsOnClearAll)})
+    endif
+endfunction
+
+
+# The options page input element IDs
+ollamaChatOptionsKeyID = 'ollama-chat-options-key'
+ollamaChatOptionsValueID = 'ollama-chat-options-value'
+
+
+# Save an edited option value
+async function ollamaChatOptionsOnEditSave(modelOptions, optKey):
+    newVal = stringTrim(documentInputValue(ollamaChatOptionsValueID))
+    if newVal != '':
+        objectSet(modelOptions, optKey, newVal)
+        systemFetch({'url': 'setModelOptions', 'body': jsonStringify({'options': modelOptions})})
+    endif
+    windowSetLocation(argsURL(ollamaChatArguments, {'view': 'options'}))
+endfunction
+
+
+# Remove an option
+async function ollamaChatOptionsOnRemove(modelOptions, optKey):
+    objectDelete(modelOptions, optKey)
+    systemFetch({'url': 'setModelOptions', 'body': jsonStringify({'options': modelOptions})})
+    windowSetLocation(argsURL(ollamaChatArguments, {'view': 'options'}))
+endfunction
+
+
+# Save a new option
+async function ollamaChatOptionsOnAddSave(modelOptions):
+    newKey = stringTrim(documentInputValue(ollamaChatOptionsKeyID))
+    newVal = stringTrim(documentInputValue(ollamaChatOptionsValueID))
+    if newKey != '' && newVal != '':
+        objectSet(modelOptions, newKey, newVal)
+        systemFetch({'url': 'setModelOptions', 'body': jsonStringify({'options': modelOptions})})
+    endif
+    windowSetLocation(argsURL(ollamaChatArguments, {'view': 'options'}))
+endfunction
+
+
+# Clear all options
+async function ollamaChatOptionsOnClearAll():
+    systemFetch({'url': 'setModelOptions', 'body': jsonStringify({'options': {}})})
+    windowSetLocation(argsURL(ollamaChatArguments, {'view': 'options'}))
+endfunction
+
+
+# ─── Templates Page ───────────────────────────────────────────────────────────
+
+async function ollamaChatTemplatesPage(args):
+    lang = objectGet(args, 'lang')
+    action = objectGet(args, 'action')
+    actionID = objectGet(args, 'actionID')
+    ollamaChatSidebar(null, lang)
+    documentSetTitle(tr(lang, 'templates_page_title') + ' — Ollama Chat')
+
+    # Fetch templates
+    convResponse = systemFetch('getConversations')
+    convData = if(convResponse != null, jsonParse(convResponse))
+    templates = if(convData != null, objectGet(convData, 'templates'))
+
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'style': 'max-width: 700px;'}, \
+        'elem': [ \
+            {'html': 'h1', 'attr': {'style': 'font-size: 1.25rem; color: var(--oc-text); margin-bottom: 0.35rem;'}, 'elem': {'text': tr(lang, 'templates_page_title')}}, \
+            {'html': 'p', 'attr': {'style': 'font-size: 0.875rem; color: var(--oc-text-3); margin-bottom: 1.5rem; line-height: 1.5;'}, 'elem': {'text': tr(lang, 'templates_page_hint')}} \
+        ] \
+    })
+
+    # New template button
+    elementModelRender({'html': 'div', 'attr': {'style': 'margin-bottom: 1rem;'}, 'elem': [ \
+        { \
+            'html': 'button', 'attr': { \
+                'type': 'button', \
+                'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.78rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut, \
+                'onclick': "ocNewTemplate();" \
+            }, \
+            'elem': [ollamaChatSVG(ollamaChatIconPlus, '13'), {'html': 'span', 'elem': {'text': tr(lang, 'add_template')}}] \
+        } \
+    ]})
+
+    # Template list
+    if !templates:
+        elementModelRender({'html': 'div', 'attr': {'style': 'background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; padding: 1.5rem; color: var(--oc-text-3); font-size: 0.875rem; line-height: 1.6;'}, 'elem': {'text': tr(lang, 'no_templates_hint')}})
+    else:
+        for template in templates:
+            templateID = objectGet(template, 'id')
+            templateTitle = objectGet(template, 'title')
+            prompts = objectGet(template, 'prompts')
+            firstPrompt = if(arrayLength(prompts), arrayGet(prompts, 0), '')
+            preview = if(stringLength(firstPrompt) > 80, stringSlice(firstPrompt, 0, 80) + '...', firstPrompt)
+            startFn = systemPartial(ollamaChatIndexOnRunTemplate, templateID)
+
+            elementModelRender({ \
+                'html': 'div', \
+                'attr': {'class': 'oc-tmpl-card', 'style': 'background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 1rem;'}, \
+                'elem': [ \
+                    { \
+                        'html': 'div', 'attr': {'style': 'flex: 1; min-width: 0;'}, \
+                        'elem': [ \
+                            {'html': 'div', 'attr': {'style': 'font-size: 0.9rem; font-weight: 500; color: var(--oc-text); margin-bottom: 0.2rem;'}, 'elem': {'text': templateTitle}}, \
+                            {'html': 'div', 'attr': {'style': 'font-size: 0.78rem; color: var(--oc-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'}, 'elem': {'text': preview}} \
+                        ] \
+                    }, \
+                    { \
+                        'html': 'div', 'attr': {'class': 'oc-tmpl-actions', 'style': 'display: flex; gap: 0.25rem; align-items: center; flex-shrink: 0;'}, \
+                        'elem': [ \
+                            ollamaChatPrimaryBtn(tr(lang, 'run'), startFn), \
+                            ollamaChatIconBtn(ollamaChatIconEdit, tr(lang, 'edit_title'), systemPartial(ollamaChatIndexOnTemplateEdit, templateID)), \
+                            { \
+                                'html': 'button', 'attr': {'type': 'button', 'title': tr(lang, 'move_up'), \
+                                    'style': 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:none;cursor:pointer;background:transparent;color:var(--oc-text-2);padding:0;', \
+                                    'onmouseover': ollamaChatHoverOn, 'onmouseout': ollamaChatHoverOut, \
+                                    'onclick': "fetch('moveTemplate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + templateID + "',down:false})}).then(function(){location.reload();});"}, \
+                                'elem': ollamaChatSVG([{'svg': 'path', 'attr': {'d': 'M18 15l-6-6-6 6'}}], '16') \
+                            }, \
+                            { \
+                                'html': 'button', 'attr': {'type': 'button', 'title': tr(lang, 'move_down'), \
+                                    'style': 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:none;cursor:pointer;background:transparent;color:var(--oc-text-2);padding:0;', \
+                                    'onmouseover': ollamaChatHoverOn, 'onmouseout': ollamaChatHoverOut, \
+                                    'onclick': "fetch('moveTemplate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + templateID + "',down:true})}).then(function(){location.reload();});"}, \
+                                'elem': ollamaChatSVG([{'svg': 'path', 'attr': {'d': 'M6 9l6 6 6-6'}}], '16') \
+                            }, \
+                            { \
+                                'html': 'button', 'attr': {'type': 'button', 'title': tr(lang, 'delete'), \
+                                    'style': 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:none;cursor:pointer;background:transparent;color:var(--oc-text-2);padding:0;', \
+                                    'onmouseover': "this.style.background='rgba(239,68,68,0.13)';this.style.color='#ef4444';", \
+                                    'onmouseout': ollamaChatHoverOut, \
+                                    'onclick': "if(confirm('Delete template?')){fetch('deleteTemplate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + templateID + "'})}).then(function(){location.reload();});}"}, \
+                                'elem': ollamaChatSVG(ollamaChatIconTrash, '16') \
+                            } \
+                        ] \
+                    } \
+                ] \
+            })
+        endfor
+    endif
+endfunction
+
+
+
+# ─── Grammar / Proofreader Page ───────────────────────────────────────────────
+
+async function ollamaChatGrammarPage(args):
+    lang = objectGet(args, 'lang')
+    ollamaChatSidebar(null, lang)
+    documentSetTitle(tr(lang, 'proofreader') + ' — Ollama Chat')
+
+    # Load saved preferences from sessionStorage (synced from localStorage on page load)
+    savedTextLang = if(sessionStorageGet('oc-grammar-text-lang') != null, sessionStorageGet('oc-grammar-text-lang'), 'auto')
+    savedHintLang = if(sessionStorageGet('oc-grammar-hint-lang') != null, sessionStorageGet('oc-grammar-hint-lang'), 'auto')
+
+    # Check if we have results stored
+    resultsRaw = sessionStorageGet('oc-grammar-results')
+
+    # Languages list (same as translator)
+    grammarLangs = [ \
+        'auto', '🇺🇸 English', '🇷🇺 Russian', '🇩🇪 German', '🇫🇷 French', \
+        '🇪🇸 Spanish', '🇨🇳 Chinese', '🇯🇵 Japanese', '🇰🇷 Korean', \
+        '🇮🇹 Italian', '🇵🇹 Portuguese', '🇸🇦 Arabic', '🇵🇱 Polish', \
+        '🇹🇷 Turkish', '🇺🇦 Ukrainian', '🇸🇪 Swedish', '🇩🇪 German' \
+    ]
+
+    selStyle = 'padding: 8px 10px; background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 10px; color: var(--oc-text); font-size: 0.875rem; font-family: inherit; cursor: pointer; outline: none; min-width: 160px;'
+    saveLangJs = "var k=this.id==='oc-gr-tl'?'oc-grammar-text-lang':'oc-grammar-hint-lang';localStorage.setItem(k,this.value);sessionStorage.setItem(k,this.value);"
+
+    # Build lang options
+    textLangOpts = []
+    hintLangOpts = []
+    for l in grammarLangs:
+        arrayPush(textLangOpts, {'html': 'option', 'attr': {'value': l, 'selected': if(l == savedTextLang, 'selected')}, 'elem': {'text': if(l == 'auto', '✦ Auto (detect)', l)}})
+        arrayPush(hintLangOpts, {'html': 'option', 'attr': {'value': l, 'selected': if(l == savedHintLang, 'selected')}, 'elem': {'text': if(l == 'auto', '✦ Auto (same as text)', l)}})
+    endfor
+
+    checkJs = "var txt=document.getElementById('oc-gr-inp').value.trim();if(!txt)return;var tl=document.getElementById('oc-gr-tl').value;var hl=document.getElementById('oc-gr-hl').value;var btn=document.getElementById('oc-gr-btn');btn.disabled=true;btn.textContent='Checking...';var body={text:txt};if(tl&&tl!=='auto')body.textLanguage=tl;if(hl&&hl!=='auto')body.hintLanguage=hl;fetch('checkGrammar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(d){if(d.error){btn.disabled=false;btn.textContent='" + tr(lang, 'proofread_btn') + "';alert('Error: '+(d.message||d.error));return;}sessionStorage.setItem('oc-grammar-input',txt);sessionStorage.setItem('oc-grammar-results',JSON.stringify(d));location.reload();}).catch(function(e){btn.disabled=false;btn.textContent='" + tr(lang, 'proofread_btn') + "';alert('Request failed.');});"
+
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'class': 'oc-grammar-page', 'style': 'display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 5rem); padding: 1.5rem 0.5rem;'}, \
+        'elem': { \
+            'html': 'div', 'attr': {'style': 'width: 100%; max-width: 1000px;'}, \
+            'elem': [ \
+                # Header
+                {'html': 'h1', 'attr': {'style': 'font-size: 1.25rem; font-weight: 600; color: var(--oc-text); margin-bottom: 0.25rem; text-align: center;'}, 'elem': {'text': tr(lang, 'proofreader')}}, \
+                {'html': 'p', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-3); text-align: center; margin-bottom: 1.25rem;'}, 'elem': {'text': 'Grammar, spelling and punctuation checker powered by your AI model'}}, \
+                # Lang selectors
+                { \
+                    'html': 'div', 'attr': {'class': 'oc-gr-lang-row', 'style': 'display: flex; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap; align-items: center;'}, \
+                    'elem': [ \
+                        {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.5rem;'}, 'elem': [ \
+                            {'html': 'span', 'attr': {'style': 'font-size: 0.78rem; font-weight: 600; color: var(--oc-text-3);'}, 'elem': {'text': tr(lang, 'proofread_text_lang') + ':'}}, \
+                            {'html': 'select', 'attr': {'id': 'oc-gr-tl', 'style': selStyle, 'onchange': saveLangJs}, 'elem': textLangOpts} \
+                        ]}, \
+                        {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.5rem;'}, 'elem': [ \
+                            {'html': 'span', 'attr': {'style': 'font-size: 0.78rem; font-weight: 600; color: var(--oc-text-3);'}, 'elem': {'text': tr(lang, 'proofread_hint_lang') + ':'}}, \
+                            {'html': 'select', 'attr': {'id': 'oc-gr-hl', 'style': selStyle, 'onchange': saveLangJs}, 'elem': hintLangOpts} \
+                        ]} \
+                    ] \
+                }, \
+                if(resultsRaw == null, \
+                    # ── INPUT VIEW ──
+                    { \
+                        'html': 'div', \
+                        'elem': [ \
+                            {'html': 'textarea', 'attr': { \
+                                'id': 'oc-gr-inp', \
+                                'rows': '12', \
+                                'placeholder': tr(lang, 'proofread_input_placeholder'), \
+                                'style': 'width: 100%; resize: vertical; padding: 14px 16px; background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; color: var(--oc-text); font-size: 0.95rem; font-family: inherit; line-height: 1.6; outline: none; box-sizing: border-box; margin-bottom: 1rem;', \
+                                'onfocus': "this.style.borderColor='var(--oc-accent)';", \
+                                'onblur': "this.style.borderColor='var(--oc-border)';", \
+                                'onkeydown': "if(event.key==='Enter'&&event.ctrlKey){" + checkJs + "}" \
+                            }}, \
+                            {'html': 'div', 'attr': {'style': 'display: flex; justify-content: space-between; align-items: center;'}, 'elem': [ \
+                                {'html': 'span', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3);'}, 'elem': {'text': 'Ctrl+Enter to check'}}, \
+                                { \
+                                    'html': 'button', 'attr': { \
+                                        'id': 'oc-gr-btn', \
+                                        'type': 'button', \
+                                        'style': 'display: inline-flex; align-items: center; gap: 8px; padding: 10px 24px; border-radius: 10px; border: none; background: var(--oc-accent); color: white; font-size: 0.95rem; font-weight: 500; cursor: pointer; font-family: inherit;', \
+                                        'onmouseover': "this.style.background='#0a7a5e';", \
+                                        'onmouseout': "this.style.background=document.documentElement.getAttribute('data-theme')==='light'?'#0d8f6e':'#10a37f';", \
+                                        'onclick': checkJs \
+                                    }, \
+                                    'elem': [ollamaChatSVG(ollamaChatIconProofread, '16'), {'html': 'span', 'elem': {'text': tr(lang, 'proofread_btn')}}] \
+                                } \
+                            ]} \
+                        ] \
+                    }, \
+                    # ── RESULTS VIEW ──
+                    { \
+                        'html': 'div', 'attr': {'id': 'oc-grammar-view', 'data-changes': resultsRaw}, \
+                        'elem': [ \
+                            # Header bar with detected lang + "Check another" button
+                            {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;'}, 'elem': [ \
+                                if(resultsRaw != null, { \
+                                    'html': 'span', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-3);'}, \
+                                    'elem': {'text': tr(lang, 'proofread_detected') + ' ' + objectGet(jsonParse(resultsRaw), 'detectedLanguage')} \
+                                }), \
+                                { \
+                                    'html': 'button', 'attr': { \
+                                        'type': 'button', \
+                                        'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.8rem; cursor: pointer; font-family: inherit;', \
+                                        'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut, \
+                                        'onclick': "sessionStorage.removeItem('oc-grammar-results');sessionStorage.removeItem('oc-grammar-input');location.reload();" \
+                                    }, \
+                                    'elem': {'text': tr(lang, 'proofread_check_again')} \
+                                } \
+                            ]}, \
+                            # Diff columns
+                            { \
+                                'html': 'div', 'attr': {'class': 'oc-trans-cols', 'style': 'display: flex; gap: 1rem;'}, \
+                                'elem': [ \
+                                    { \
+                                        'html': 'div', 'attr': {'style': 'flex: 1; min-width: 0;'}, \
+                                        'elem': [ \
+                                            {'html': 'div', 'attr': {'style': 'font-size: 0.72rem; font-weight: 600; color: var(--oc-text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;'}, 'elem': {'text': tr(lang, 'proofread_original')}}, \
+                                            {'html': 'div', 'attr': {'id': 'oc-gr-orig', 'style': 'background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; padding: 14px 16px; font-size: 0.95rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; min-height: 200px;'}, \
+                                                'elem': {'text': if(resultsRaw != null, sessionStorageGet('oc-grammar-input'), '')}} \
+                                        ] \
+                                    }, \
+                                    { \
+                                        'html': 'div', 'attr': {'style': 'flex: 1; min-width: 0;'}, \
+                                        'elem': [ \
+                                            {'html': 'div', 'attr': {'style': 'font-size: 0.72rem; font-weight: 600; color: var(--oc-accent); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;'}, 'elem': {'text': tr(lang, 'proofread_corrected')}}, \
+                                            {'html': 'div', 'attr': {'id': 'oc-gr-corr', 'style': 'background: var(--oc-bg-2); border: 1px solid var(--oc-accent); border-radius: 12px; padding: 14px 16px; font-size: 0.95rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; min-height: 200px;'}, \
+                                                'elem': {'text': if(resultsRaw != null, objectGet(jsonParse(resultsRaw), 'correctedText'), '')}} \
+                                        ] \
+                                    } \
+                                ] \
+                            }, \
+                            # No errors message
+                            if(resultsRaw != null && arrayLength(objectGet(jsonParse(resultsRaw), 'changes')) == 0, { \
+                                'html': 'div', 'attr': {'style': 'text-align: center; margin-top: 1rem; padding: 0.75rem; background: var(--oc-accent-bg); border: 1px solid var(--oc-accent); border-radius: 10px; color: var(--oc-accent); font-weight: 500;'}, \
+                                'elem': {'text': tr(lang, 'proofread_no_errors')} \
+                            }) \
+                        ] \
+                    } \
+                ) \
+            ] \
+        } \
+    })
+
+    # Annotate diff after render (JS reads changes from data-changes attribute)
+    if resultsRaw != null:
+        elementModelRender({'html': 'script', 'elem': {'text': "(function(){var v=document.getElementById('oc-grammar-view');if(!v)return;var c=v.getAttribute('data-changes');if(c)setTimeout(function(){var o=document.getElementById('oc-gr-orig');var r=document.getElementById('oc-gr-corr');if(o&&r){var d;try{d=JSON.parse(c).changes;}catch(e){return;}if(d)ocAnnotateGrammar(o,r,JSON.stringify(d));}},50);})();"}})
+    endif
+endfunction
+
+
+# ─── Translator Page ──────────────────────────────────────────────────────────
+
+# Build a row of selectable chip buttons for translator parameters
+function ollamaChatMakeChips(groupName, options, savedVal):
+    chips = []
+    for opt in options:
+        val = objectGet(opt, 'val')
+        lbl = objectGet(opt, 'lbl')
+        isActive = val == savedVal
+        activeBg = if(isActive, 'var(--oc-accent)', 'transparent')
+        activeColor = if(isActive, 'white', 'var(--oc-text-2)')
+        activeBorder = if(isActive, 'var(--oc-accent)', 'var(--oc-border)')
+        arrayPush(chips, { \
+            'html': 'button', 'attr': { \
+                'type': 'button', \
+                'data-group': groupName, \
+                'data-val': val, \
+                'style': 'padding: 4px 12px; border-radius: 20px; border: 1px solid ' + activeBorder + '; background: ' + activeBg + '; color: ' + activeColor + '; font-size: 0.78rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                'onclick': 'ocSelectChip(this);' \
+            }, \
+            'elem': {'text': lbl} \
+        })
+    endfor
+    return chips
+endfunction
+
+
+async function ollamaChatTranslatePage(args):
+    lang = objectGet(args, 'lang')
+    ollamaChatSidebar(null, lang)
+    documentSetTitle(tr(lang, 'translator') + ' — Ollama Chat')
+
+    # Load saved language preferences (written to sessionStorage by JS on page load)
+    savedFrom = sessionStorageGet('oc-trans-from')
+    savedTo = sessionStorageGet('oc-trans-to')
+    defaultFrom = if(savedFrom != null, savedFrom, '🇷🇺 Russian')
+    defaultTo = if(savedTo != null, savedTo, '🇺🇸 English')
+
+    # Language list with flags
+    langs = [ \
+        '🇺🇸 English', '🇷🇺 Russian', '🇩🇪 German', '🇫🇷 French', \
+        '🇪🇸 Spanish', '🇨🇳 Chinese', '🇯🇵 Japanese', '🇰🇷 Korean', \
+        '🇮🇹 Italian', '🇵🇹 Portuguese', '🇸🇦 Arabic', '🇵🇱 Polish', \
+        '🇹🇷 Turkish', '🇳🇱 Dutch', '🇺🇦 Ukrainian', '🇸🇪 Swedish', \
+        '🇩🇰 Danish', '🇫🇮 Finnish', '🇭🇺 Hungarian', '🇬🇷 Greek', \
+        '🇧🇬 Bulgarian', '🇨🇿 Czech', '🇷🇴 Romanian', '🇮🇱 Hebrew', \
+        '🇮🇩 Indonesian', '🇻🇳 Vietnamese', '🇹🇭 Thai' \
+    ]
+
+    # Build <option> elements for both selects
+    fromOptions = []
+    toOptions = []
+    for l in langs:
+        arrayPush(fromOptions, {'html': 'option', 'attr': {'value': l, 'selected': if(l == defaultFrom, 'selected')}, 'elem': {'text': l}})
+        arrayPush(toOptions, {'html': 'option', 'attr': {'value': l, 'selected': if(l == defaultTo, 'selected')}, 'elem': {'text': l}})
+    endfor
+
+    # Load saved parameter preferences
+    savedLevel = if(sessionStorageGet('oc-trans-level') != null, sessionStorageGet('oc-trans-level'), 'auto')
+    savedStyle = if(sessionStorageGet('oc-trans-style') != null, sessionStorageGet('oc-trans-style'), 'auto')
+    savedTone = if(sessionStorageGet('oc-trans-tone') != null, sessionStorageGet('oc-trans-tone'), 'auto')
+
+    selStyle = 'width: 100%; padding: 10px 12px; background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 10px; color: var(--oc-text); font-size: 0.95rem; font-family: inherit; cursor: pointer; outline: none;'
+    areaStyle = 'width: 100%; height: calc(40vh - 60px); min-height: 160px; resize: none; padding: 14px 16px; background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; color: var(--oc-text); font-size: 1rem; font-family: inherit; line-height: 1.6; outline: none; box-sizing: border-box;'
+    saveLangJs = "localStorage.setItem(this.id=='oc-trans-from'?'oc-trans-from':'oc-trans-to',this.value);"
+    translateJs = "var t=document.getElementById('oc-trans-in').value.trim();if(!t)return;var f=document.getElementById('oc-trans-from').value;var to=document.getElementById('oc-trans-to').value;var lv=localStorage.getItem('oc-trans-level')||'auto';var st=localStorage.getItem('oc-trans-style')||'auto';var tn=localStorage.getItem('oc-trans-tone')||'auto';var out=document.getElementById('oc-trans-out');out.value='" + tr(lang, 'translating') + "';out.style.opacity='0.5';var body={text:t,fromLang:f,toLang:to};if(lv!=='auto')body.level=lv;if(st!=='auto')body.style=st;if(tn!=='auto')body.tone=tn;fetch('translateText',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(d){out.value=d.translation||'';out.style.opacity='1';}).catch(function(){out.value='Translation failed';out.style.opacity='1';});"
+    swapJs = "var f=document.getElementById('oc-trans-from');var t=document.getElementById('oc-trans-to');var tmp=f.value;f.value=t.value;t.value=tmp;localStorage.setItem('oc-trans-from',f.value);localStorage.setItem('oc-trans-to',t.value);document.getElementById('oc-trans-out').value='';"
+
+    levelOpts = [ \
+        {'val': 'auto', 'lbl': '✦ Auto'}, \
+        {'val': 'A1', 'lbl': 'A1'}, {'val': 'A2', 'lbl': 'A2'}, \
+        {'val': 'B1', 'lbl': 'B1'}, {'val': 'B2', 'lbl': 'B2'}, \
+        {'val': 'C1', 'lbl': 'C1'}, {'val': 'C2', 'lbl': 'C2'} \
+    ]
+    styleOpts = [ \
+        {'val': 'auto', 'lbl': '✦ Auto'}, \
+        {'val': 'Formal', 'lbl': '🎩 Formal'}, \
+        {'val': 'Informal', 'lbl': '😊 Informal'}, \
+        {'val': 'IT/Technical', 'lbl': '💻 IT'}, \
+        {'val': 'Business', 'lbl': '💼 Business'}, \
+        {'val': 'Academic', 'lbl': '📚 Academic'}, \
+        {'val': 'Journalistic', 'lbl': '📰 News'}, \
+        {'val': 'Literary', 'lbl': '✍️ Literary'}, \
+        {'val': 'Simple', 'lbl': '🟢 Simple'} \
+    ]
+    toneOpts = [ \
+        {'val': 'auto', 'lbl': '✦ Auto'}, \
+        {'val': 'Neutral', 'lbl': '⚪ Neutral'}, \
+        {'val': 'Friendly', 'lbl': '🤝 Friendly'}, \
+        {'val': 'Professional', 'lbl': '👔 Professional'}, \
+        {'val': 'Empathetic', 'lbl': '💙 Empathetic'}, \
+        {'val': 'Concise', 'lbl': '⚡ Concise'}, \
+        {'val': 'Elaborate', 'lbl': '📝 Elaborate'} \
+    ]
+
+    chipRowStyle = 'display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center;'
+    chipLabelStyle = 'font-size: 0.72rem; font-weight: 600; color: var(--oc-text-3); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; flex-shrink: 0;'
+
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'style': 'display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 5rem); padding: 1.25rem 0;'}, \
+        'elem': { \
+            'html': 'div', 'attr': {'style': 'width: 100%; max-width: 1400px;'}, \
+            'elem': [ \
+                # Page title centered
+                {'html': 'h1', 'attr': {'style': 'font-size: 1.25rem; font-weight: 600; color: var(--oc-text); margin-bottom: 1.25rem; text-align: center;'}, 'elem': {'text': tr(lang, 'translator')}}, \
+                # Language selectors row
+                { \
+                    'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;'}, \
+                    'elem': [ \
+                        {'html': 'div', 'attr': {'style': 'flex: 1; min-width: 140px;'}, 'elem': [ \
+                            {'html': 'select', 'attr': {'id': 'oc-trans-from', 'class': 'oc-trans-sel', 'style': selStyle, 'onchange': saveLangJs + "document.getElementById('oc-trans-out').value='';"}, 'elem': fromOptions} \
+                        ]}, \
+                        { \
+                            'html': 'button', 'attr': { \
+                                'type': 'button', 'title': tr(lang, 'swap_languages'), \
+                                'style': 'display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--oc-border); background: var(--oc-bg-2); cursor: pointer; color: var(--oc-text-2); flex-shrink: 0;', \
+                                'onmouseover': ollamaChatHoverOn, 'onmouseout': ollamaChatHoverOut, \
+                                'onclick': swapJs \
+                            }, \
+                            'elem': ollamaChatSVG([{'svg': 'polyline', 'attr': {'points': '17 1 21 5 17 9'}}, {'svg': 'path', 'attr': {'d': 'M3 11V9a4 4 0 0 1 4-4h14'}}, {'svg': 'polyline', 'attr': {'points': '7 23 3 19 7 15'}}, {'svg': 'path', 'attr': {'d': 'M21 13v2a4 4 0 0 1-4 4H3'}}], '18') \
+                        }, \
+                        {'html': 'div', 'attr': {'style': 'flex: 1; min-width: 140px;'}, 'elem': [ \
+                            {'html': 'select', 'attr': {'id': 'oc-trans-to', 'class': 'oc-trans-sel', 'style': selStyle, 'onchange': saveLangJs + "document.getElementById('oc-trans-out').value='';"}, 'elem': toOptions} \
+                        ]} \
+                    ] \
+                }, \
+                # Parameter chips: Level, Style, Tone
+                { \
+                    'html': 'div', 'attr': {'style': 'display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0.75rem 0.875rem; background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px;'}, \
+                    'elem': [ \
+                        {'html': 'div', 'attr': {'style': chipRowStyle}, 'elem': [{'html': 'span', 'attr': {'style': chipLabelStyle}, 'elem': {'text': 'Level'}}, ollamaChatMakeChips('level', levelOpts, savedLevel)]}, \
+                        {'html': 'div', 'attr': {'style': chipRowStyle}, 'elem': [{'html': 'span', 'attr': {'style': chipLabelStyle}, 'elem': {'text': 'Style'}}, ollamaChatMakeChips('style', styleOpts, savedStyle)]}, \
+                        {'html': 'div', 'attr': {'style': chipRowStyle}, 'elem': [{'html': 'span', 'attr': {'style': chipLabelStyle}, 'elem': {'text': 'Tone'}}, ollamaChatMakeChips('tone', toneOpts, savedTone)]} \
+                    ] \
+                }, \
+                # Two text areas
+                { \
+                    'html': 'div', 'attr': {'class': 'oc-trans-cols', 'style': 'display: flex; gap: 0.75rem; margin-bottom: 0.75rem;'}, \
+                    'elem': [ \
+                        { \
+                            'html': 'div', 'attr': {'style': 'flex: 1; min-width: 0; display: flex; flex-direction: column;'}, \
+                            'elem': { \
+                                'html': 'textarea', 'attr': { \
+                                    'id': 'oc-trans-in', 'class': 'oc-trans-area', \
+                                    'placeholder': tr(lang, 'trans_input_placeholder') + '\n(Shift+Enter to translate)', \
+                                    'autocomplete': 'off', 'spellcheck': 'false', \
+                                    'style': areaStyle, \
+                                    'onfocus': "this.style.borderColor='var(--oc-accent)';", \
+                                    'onblur': "this.style.borderColor='var(--oc-border)';", \
+                                    'onkeydown': "if(event.key==='Enter'&&event.shiftKey){event.preventDefault();" + translateJs + "}" \
+                                } \
+                            } \
+                        }, \
+                        { \
+                            'html': 'div', 'attr': {'style': 'flex: 1; min-width: 0; display: flex; flex-direction: column;'}, \
+                            'elem': { \
+                                'html': 'textarea', 'attr': { \
+                                    'id': 'oc-trans-out', 'class': 'oc-trans-area', \
+                                    'placeholder': tr(lang, 'trans_output_placeholder'), \
+                                    'readonly': 'readonly', 'spellcheck': 'false', \
+                                    'style': areaStyle + ' background: var(--oc-bg-3); cursor: default;' \
+                                } \
+                            } \
+                        } \
+                    ] \
+                }, \
+                # Translate button
+                { \
+                    'html': 'div', 'attr': {'style': 'display: flex; justify-content: center;'}, \
+                'elem': { \
+                    'html': 'button', 'attr': { \
+                        'type': 'button', \
+                        'style': 'display: inline-flex; align-items: center; gap: 8px; padding: 10px 28px; border-radius: 10px; border: none; background: var(--oc-accent); color: white; font-size: 0.95rem; font-weight: 500; cursor: pointer; font-family: inherit;', \
+                        'onmouseover': "this.style.background='#0a7a5e';", \
+                        'onmouseout': "this.style.background=document.documentElement.getAttribute('data-theme')==='light'?'#0d8f6e':'#10a37f';", \
+                        'onclick': translateJs \
+                    }, \
+                    'elem': [ollamaChatSVG(ollamaChatIconTranslate, '16'), {'html': 'span', 'elem': {'text': tr(lang, 'translate_btn')}}] \
+                } \
+                } \
+            ] \
+        } \
+    })
+endfunction
+
+
+# ─── Help Page ────────────────────────────────────────────────────────────────
+
+async function ollamaChatHelpPage(args):
+    lang = objectGet(args, 'lang')
+    ollamaChatSidebar(null, lang)
+    documentSetTitle(tr(lang, 'help') + ' — Ollama Chat')
+
+    h2Style = 'font-size: 1rem; font-weight: 600; color: var(--oc-text); margin: 1.5rem 0 0.5rem;'
+    h3Style = 'font-size: 0.875rem; font-weight: 600; color: var(--oc-text-2); margin: 1rem 0 0.3rem;'
+    pStyle = 'font-size: 0.9rem; color: var(--oc-text-2); line-height: 1.65; margin-bottom: 0.5rem;'
+    codeStyle = 'background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 5px; padding: 2px 6px; font-family: monospace; font-size: 0.82rem; color: var(--oc-accent);'
+
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'style': 'max-width: 700px;'}, \
+        'elem': [ \
+            {'html': 'h1', 'attr': {'style': 'font-size: 1.4rem; color: var(--oc-text); margin-bottom: 0.25rem;'}, 'elem': {'text': 'Ollama Chat — ' + tr(lang, 'help')}}, \
+            {'html': 'p', 'attr': {'style': pStyle + ' color: var(--oc-text-3);'}, 'elem': {'text': 'A local AI chat client powered by Ollama. All data stays on your machine.'}}, \
+            {'html': 'hr', 'attr': {'style': 'border: none; border-top: 1px solid var(--oc-border-2); margin: 1.25rem 0;'}}, \
+            {'html': 'h2', 'attr': {'style': h2Style}, 'elem': {'text': 'Getting Started'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': '1. Select a model from the "Select Model" page (sidebar). Click "Use" on any model to configure and activate it.'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': '2. Click "New Chat" or start typing in the input field to begin a conversation.'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': '3. Press Enter to send. Use the multiline toggle (≡) for longer inputs.'}}, \
+            {'html': 'hr', 'attr': {'style': 'border: none; border-top: 1px solid var(--oc-border-2); margin: 1.25rem 0;'}}, \
+            {'html': 'h2', 'attr': {'style': h2Style}, 'elem': {'text': 'Prompt Commands'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': 'Type these commands anywhere in your message to include extra content:'}}, \
+            {'html': 'h3', 'attr': {'style': h3Style}, 'elem': {'text': 'Include a file'}}, \
+            {'html': 'code', 'attr': {'style': 'display: block; background: var(--oc-bg-3); border: 1px solid var(--oc-border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--oc-accent); margin-bottom: 0.5rem;'}, 'elem': {'text': '/file /path/to/file.py'}}, \
+            {'html': 'h3', 'attr': {'style': h3Style}, 'elem': {'text': 'Include all files in a directory'}}, \
+            {'html': 'code', 'attr': {'style': 'display: block; background: var(--oc-bg-3); border: 1px solid var(--oc-border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--oc-accent); margin-bottom: 0.5rem;'}, 'elem': {'text': '/dir /path/to/project py -d 2'}}, \
+            {'html': 'h3', 'attr': {'style': h3Style}, 'elem': {'text': 'Include an image (for vision models)'}}, \
+            {'html': 'code', 'attr': {'style': 'display: block; background: var(--oc-bg-3); border: 1px solid var(--oc-border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--oc-accent); margin-bottom: 0.5rem;'}, 'elem': {'text': '/image /path/to/image.png'}}, \
+            {'html': 'h3', 'attr': {'style': h3Style}, 'elem': {'text': 'Include content from a URL'}}, \
+            {'html': 'code', 'attr': {'style': 'display: block; background: var(--oc-bg-3); border: 1px solid var(--oc-border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--oc-accent); margin-bottom: 0.5rem;'}, 'elem': {'text': '/url https://example.com/article'}}, \
+            {'html': 'h3', 'attr': {'style': h3Style}, 'elem': {'text': 'Run a template'}}, \
+            {'html': 'code', 'attr': {'style': 'display: block; background: var(--oc-bg-3); border: 1px solid var(--oc-border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--oc-accent); margin-bottom: 0.5rem;'}, 'elem': {'text': '/do template-name -v varName value'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': 'Type /? in a message to see all available commands.'}}, \
+            {'html': 'hr', 'attr': {'style': 'border: none; border-top: 1px solid var(--oc-border-2); margin: 1.25rem 0;'}}, \
+            {'html': 'h2', 'attr': {'style': h2Style}, 'elem': {'text': 'Model Options'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': 'Configure model parameters when selecting a model (click "Use" on any model card). Options include:'}}, \
+            {'html': 'ul', 'attr': {'style': 'padding-left: 1.25rem; margin: 0; color: var(--oc-text-2); font-size: 0.9rem; line-height: 2;'}, 'elem': [ \
+                {'html': 'li', 'elem': {'text': 'Context Window (num_ctx) — how much context the model can hold'}}, \
+                {'html': 'li', 'elem': {'text': 'Temperature — randomness of responses (0 = precise, 2 = creative)'}}, \
+                {'html': 'li', 'elem': {'text': 'Top P — nucleus sampling probability threshold'}}, \
+                {'html': 'li', 'elem': {'text': 'Seed — fixed seed for reproducible outputs'}} \
+            ]}, \
+            {'html': 'hr', 'attr': {'style': 'border: none; border-top: 1px solid var(--oc-border-2); margin: 1.25rem 0;'}}, \
+            {'html': 'h2', 'attr': {'style': h2Style}, 'elem': {'text': 'Templates'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': 'Templates are reusable sequences of prompts with optional variables (like {{City}} or {{Language}}). Create them from the home page or save an existing conversation as a template using the "Save Template" button in the chat toolbar.'}}, \
+            {'html': 'hr', 'attr': {'style': 'border: none; border-top: 1px solid var(--oc-border-2); margin: 1.25rem 0;'}}, \
+            {'html': 'h2', 'attr': {'style': h2Style}, 'elem': {'text': 'Context Usage'}}, \
+            {'html': 'p', 'attr': {'style': pStyle}, 'elem': {'text': 'After each model response, Ollama Chat shows how many tokens were used vs. the context window limit. When context is nearly full, start a new conversation.'}} \
+        ] \
+    })
+endfunction
+
+
+# ─── Settings Page ────────────────────────────────────────────────────────────
+
+async function ollamaChatSettingsPage(args):
+    lang = objectGet(args, 'lang')
+    ollamaChatSidebar(null, lang)
+    documentSetTitle(tr(lang, 'settings') + ' — Ollama Chat')
+
+    cardStyle = 'background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem;'
+    labelStyle = 'font-size: 0.75rem; font-weight: 600; color: var(--oc-text-2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; display: block;'
+    themeInactive = 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.875rem; cursor: pointer; font-family: inherit;'
+    fontBtnStyle = 'display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.82rem; cursor: pointer; font-family: inherit;'
+
+    # Language URLs
+    langEnURL = argsURL(ollamaChatArguments, {'lang': 'en', 'view': 'settings'}, false)
+    langRuURL = argsURL(ollamaChatArguments, {'lang': 'ru', 'view': 'settings'}, false)
+    langDeURL = argsURL(ollamaChatArguments, {'lang': 'de', 'view': 'settings'}, false)
+
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'style': 'max-width: 560px;'}, \
+        'elem': [ \
+            {'html': 'h1', 'attr': {'style': 'font-size: 1.25rem; color: var(--oc-text); margin-bottom: 1.5rem;'}, 'elem': {'text': tr(lang, 'settings')}}, \
+            # Color scheme card
+            { \
+                'html': 'div', 'attr': {'style': cardStyle}, \
+                'elem': [ \
+                    {'html': 'span', 'attr': {'style': labelStyle}, 'elem': {'text': tr(lang, 'color_scheme')}}, \
+                    {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem; flex-wrap: wrap;'}, 'elem': [ \
+                        { \
+                            'html': 'button', \
+                            'attr': { \
+                                'type': 'button', \
+                                'style': themeInactive, \
+                                'onclick': "localStorage.setItem('oc-theme','dark');location.reload();", \
+                                'onmouseover': ollamaChatHoverBorderOn, \
+                                'onmouseout': ollamaChatHoverBorderOut \
+                            }, \
+                            'elem': [ollamaChatSVG([{'svg': 'path', 'attr': {'d': 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'}}], '15'), {'html': 'span', 'elem': {'text': tr(lang, 'dark')}}] \
+                        }, \
+                        { \
+                            'html': 'button', \
+                            'attr': { \
+                                'type': 'button', \
+                                'style': themeInactive, \
+                                'onclick': "localStorage.setItem('oc-theme','light');location.reload();", \
+                                'onmouseover': ollamaChatHoverBorderOn, \
+                                'onmouseout': ollamaChatHoverBorderOut \
+                            }, \
+                            'elem': [ollamaChatSVG([{'svg': 'circle', 'attr': {'cx': '12', 'cy': '12', 'r': '5'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '1', 'x2': '12', 'y2': '3'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '21', 'x2': '12', 'y2': '23'}}, {'svg': 'line', 'attr': {'x1': '4.22', 'y1': '4.22', 'x2': '5.64', 'y2': '5.64'}}, {'svg': 'line', 'attr': {'x1': '18.36', 'y1': '18.36', 'x2': '19.78', 'y2': '19.78'}}, {'svg': 'line', 'attr': {'x1': '1', 'y1': '12', 'x2': '3', 'y2': '12'}}, {'svg': 'line', 'attr': {'x1': '21', 'y1': '12', 'x2': '23', 'y2': '12'}}], '15'), {'html': 'span', 'elem': {'text': tr(lang, 'light')}}] \
+                        } \
+                    ]}, \
+                    {'html': 'p', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3); margin-top: 0.75rem; margin-bottom: 0;'}, 'elem': {'text': 'Preference is saved in your browser and applied on page load.'}} \
+                ] \
+            }, \
+            # Font size card
+            { \
+                'html': 'div', 'attr': {'style': cardStyle}, \
+                'elem': [ \
+                    {'html': 'span', 'attr': {'style': labelStyle}, 'elem': {'text': tr(lang, 'font_size')}}, \
+                    {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.35rem; flex-wrap: wrap;'}, 'elem': [ \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','12px');document.querySelector('html').style.setProperty('--markdown-model-font-size','12px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '12px'}}, \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','13px');document.querySelector('html').style.setProperty('--markdown-model-font-size','13px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '13px'}}, \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','14px');document.querySelector('html').style.setProperty('--markdown-model-font-size','14px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '14px'}}, \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','15px');document.querySelector('html').style.setProperty('--markdown-model-font-size','15px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '15px (default)'}}, \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','16px');document.querySelector('html').style.setProperty('--markdown-model-font-size','16px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '16px'}}, \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','17px');document.querySelector('html').style.setProperty('--markdown-model-font-size','17px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '17px'}}, \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','18px');document.querySelector('html').style.setProperty('--markdown-model-font-size','18px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '18px'}}, \
+                        {'html': 'button', 'attr': {'type': 'button', 'style': fontBtnStyle, 'onclick': "localStorage.setItem('oc-font','20px');document.querySelector('html').style.setProperty('--markdown-model-font-size','20px');", 'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, 'elem': {'text': '20px'}} \
+                    ]}, \
+                    {'html': 'p', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3); margin-top: 0.75rem; margin-bottom: 0;'}, 'elem': {'text': 'Font size changes immediately and is saved in your browser.'}} \
+                ] \
+            }, \
+            # Language card
+            { \
+                'html': 'div', 'attr': {'style': cardStyle}, \
+                'elem': [ \
+                    {'html': 'span', 'attr': {'style': labelStyle}, 'elem': {'text': tr(lang, 'language') + ' / Язык / Deutsch'}}, \
+                    {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem; flex-wrap: wrap;'}, 'elem': [ \
+                        { \
+                            'html': 'a', \
+                            'attr': { \
+                                'href': langEnURL, \
+                                'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid ' + if(lang == 'en', '#10a37f', 'var(--oc-border)') + '; background: ' + if(lang == 'en', 'rgba(16,163,127,0.1)', 'transparent') + '; color: ' + if(lang == 'en', '#10a37f', 'var(--oc-text-2)') + '; font-size: 0.875rem; font-weight: 500; text-decoration: none;', \
+                                'onmouseover': "this.style.borderColor='#10a37f';this.style.color='#10a37f';", \
+                                'onmouseout': if(lang == 'en', "this.style.borderColor='#10a37f';this.style.color='#10a37f';", "var l=document.documentElement.getAttribute('data-theme')==='light';this.style.borderColor=l?'#e5e7eb':'#3f3f3f';this.style.color=l?'#4b5563':'#c0c0d0';") \
+                            }, \
+                            'elem': {'text': 'EN'} \
+                        }, \
+                        { \
+                            'html': 'a', \
+                            'attr': { \
+                                'href': langRuURL, \
+                                'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid ' + if(lang == 'ru', '#10a37f', 'var(--oc-border)') + '; background: ' + if(lang == 'ru', 'rgba(16,163,127,0.1)', 'transparent') + '; color: ' + if(lang == 'ru', '#10a37f', 'var(--oc-text-2)') + '; font-size: 0.875rem; font-weight: 500; text-decoration: none;', \
+                                'onmouseover': "this.style.borderColor='#10a37f';this.style.color='#10a37f';", \
+                                'onmouseout': if(lang == 'ru', "this.style.borderColor='#10a37f';this.style.color='#10a37f';", "var l=document.documentElement.getAttribute('data-theme')==='light';this.style.borderColor=l?'#e5e7eb':'#3f3f3f';this.style.color=l?'#4b5563':'#c0c0d0';") \
+                            }, \
+                            'elem': {'text': 'RU'} \
+                        }, \
+                        { \
+                            'html': 'a', \
+                            'attr': { \
+                                'href': langDeURL, \
+                                'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid ' + if(lang == 'de', '#10a37f', 'var(--oc-border)') + '; background: ' + if(lang == 'de', 'rgba(16,163,127,0.1)', 'transparent') + '; color: ' + if(lang == 'de', '#10a37f', 'var(--oc-text-2)') + '; font-size: 0.875rem; font-weight: 500; text-decoration: none;', \
+                                'onmouseover': "this.style.borderColor='#10a37f';this.style.color='#10a37f';", \
+                                'onmouseout': if(lang == 'de', "this.style.borderColor='#10a37f';this.style.color='#10a37f';", "var l=document.documentElement.getAttribute('data-theme')==='light';this.style.borderColor=l?'#e5e7eb':'#3f3f3f';this.style.color=l?'#4b5563':'#c0c0d0';") \
+                            }, \
+                            'elem': {'text': 'DE'} \
+                        } \
+                    ]}, \
+                    {'html': 'p', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3); margin-top: 0.75rem; margin-bottom: 0;'}, 'elem': {'text': 'Language is saved in the URL and applied on navigation.'}} \
+                ] \
+            } \
+        ] \
+    })
 endfunction

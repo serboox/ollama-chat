@@ -5,3 +5,5 @@
 /pylintrc
 /src/*.egg-info/
 __pycache__/
+/ollama-chat.json
+/ollama-chat-settings.json

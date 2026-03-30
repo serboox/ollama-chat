@@ -19,8 +19,12 @@ ollamaChatModelsDownloadTimeoutMs = 2000
 async function ollamaChatModelsPage(args):
     action = objectGet(args, 'action')
     actionID = objectGet(args, 'actionID')
+    lang = objectGet(args, 'lang')
 
-    # Get the models
+    # Render the sidebar
+    ollamaChatSidebar(null, lang)
+
+    # Get models and current options
     modelsResponse = systemFetch('getModels')
     modelsResponse = if(modelsResponse != null, jsonParse(modelsResponse))
     if modelsResponse == null:
@@ -32,110 +36,323 @@ async function ollamaChatModelsPage(args):
     models = objectGet(modelsResponse, 'models')
     downloading = objectGet(modelsResponse, 'downloading')
 
-    # Render the page title
-    title = 'Ollama Chat - Models'
-    documentSetTitle(title)
-    markdownPrint( \
-        argsLink(ollamaChatArguments, 'Back', null, true), \
-        '', \
-        '# ' + markdownEscape(title), \
-        '', \
-        if(currentModel, '**Current Model:** ' + currentModel, ''), \
-        '', \
-        argsLink(ollamaChatArguments, 'Download Models', {'view': 'download'}) \
-    )
+    # Get current model options for pre-filling the config form
+    convResponse = systemFetch('getConversations')
+    convData = if(convResponse != null, jsonParse(convResponse))
+    modelOptions = if(convData != null && objectHas(convData, 'modelOptions'), objectGet(convData, 'modelOptions'), {})
 
-    # Render the downloading models
+    # Render the page header
+    documentSetTitle(tr(lang, 'select_model'))
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'class': 'oc-page-header', 'style': 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap;'}, \
+        'elem': [ \
+            { \
+                'html': 'div', \
+                'elem': [ \
+                    {'html': 'h1', 'attr': {'style': 'margin: 0 0 0.25rem; font-size: 1.25rem; color: var(--oc-text);'}, 'elem': {'text': tr(lang, 'models')}}, \
+                    if(currentModel, {'html': 'div', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-3);'}, 'elem': {'text': tr(lang, 'active') + ': ' + currentModel}}) \
+                ] \
+            }, \
+            { \
+                'html': 'a', \
+                'attr': { \
+                    'href': argsURL(ollamaChatArguments, {'view': 'download'}, false), \
+                    'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: none; background: var(--oc-accent); color: white; font-size: 0.875rem; font-weight: 500; text-decoration: none;', \
+                    'onmouseover': "this.style.background='#0a7a5e';", \
+                    'onmouseout': "this.style.background=document.documentElement.getAttribute('data-theme')==='light'?'#0d8f6e':'#10a37f';" \
+                }, \
+                'elem': [ollamaChatSVG(ollamaChatIconDownload, '14'), {'html': 'span', 'elem': {'text': tr(lang, 'download_models')}}] \
+            } \
+        ] \
+    })
+
+    # Render downloading progress
     if downloading:
-        # Render the model list
-        markdownPrint('', '## Downloading')
-        downloadTableRows = [{'html': 'tr', 'elem': [ \
-            {'html': 'th', 'elem': {'text': 'Model'}}, \
-            {'html': 'th', 'elem': {'text': 'Progress'}}, \
-            {'html': 'th', 'elem': {'text': 'Status'}}, \
-            {'html': 'th', 'elem': {'text': ''}} \
-        ]}]
-        downloadTable = [ \
-            {'html': 'table', 'elem': [ \
-                {'html': 'tbody', 'elem': downloadTableRows} \
-            ]} \
-        ]
+        elementModelRender({'html': 'h2', 'attr': {'style': 'font-size: 0.875rem; font-weight: 600; color: var(--oc-text-2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;'}, 'elem': {'text': tr(lang, 'downloading')}})
+        downloadCards = []
         for download in downloading:
             modelID = objectGet(download, 'id')
             status = objectGet(download, 'status')
             completed = objectGet(download, 'completed')
             size = objectGet(download, 'size')
-            progress = if(size == null, '0%', mathRound(100 * completed / size) + '% of ' + ollamaChatModelsFormatSize(size))
-            arrayPush(downloadTableRows, {'html': 'tr', 'elem': [ \
-                {'html': 'td', 'elem': {'text': modelID}}, \
-                {'html': 'td', 'elem': {'text': progress}}, \
-                {'html': 'td', 'elem': {'text': status}}, \
-                formsLinkButtonElements('Stop', systemPartial(ollamaChatModelsOnDownloadStop, args, modelID)) \
-            ]})
+            pct = if(size == null || size == 0, 0, mathRound(100 * completed / size))
+            progress = if(size == null, 'Starting...', pct + '% of ' + ollamaChatModelsFormatSize(size))
+            arrayPush(downloadCards, { \
+                'html': 'div', \
+                'attr': {'style': 'background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 1rem;'}, \
+                'elem': [ \
+                    {'html': 'div', 'attr': {'style': 'flex: 1;'}, 'elem': [ \
+                        {'html': 'div', 'attr': {'style': 'font-weight: 600; color: var(--oc-text); margin-bottom: 0.25rem;'}, 'elem': {'text': modelID}}, \
+                        {'html': 'div', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-2);'}, 'elem': {'text': status + ' — ' + progress}}, \
+                        {'html': 'div', 'attr': {'style': 'margin-top: 0.5rem; height: 4px; background: var(--oc-border); border-radius: 2px; overflow: hidden;'}, \
+                            'elem': {'html': 'div', 'attr': {'style': 'height: 100%; width: ' + pct + '%; background: var(--oc-accent); border-radius: 2px;'}}} \
+                    ]}, \
+                    ollamaChatTextIconBtnDanger(ollamaChatIconTrash, 'Stop', systemPartial(ollamaChatModelsOnDownloadStop, args, modelID)) \
+                ] \
+            })
         endfor
-        elementModelRender(downloadTable)
-
-        # Set the refresh timer
+        elementModelRender(downloadCards)
+        elementModelRender({'html': 'div', 'attr': {'style': 'height: 1.5rem;'}})
         windowSetTimeout(systemPartial(ollamaChatModelsPage, args), ollamaChatModelsDownloadTimeoutMs)
     endif
 
-    # Render the model list
-    markdownPrint('', '## Models')
+    # Render model cards
+    elementModelRender({'html': 'h2', 'attr': {'style': 'font-size: 0.875rem; font-weight: 600; color: var(--oc-text-2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;'}, 'elem': {'text': tr(lang, 'installed_models')}})
     if !models:
-        markdownPrint('', 'There are no downloaded models.')
+        elementModelRender({'html': 'div', 'attr': {'style': 'color: var(--oc-text-3); font-style: italic; padding: 1rem 0;'}, 'elem': {'text': tr(lang, 'no_models')}})
     else:
-        modelTableRows = [{'html': 'tr', 'elem': [ \
-            {'html': 'th', 'elem': {'text': 'Model'}}, \
-            {'html': 'th', 'attr': {'style': 'text-align: right;'}, 'elem': {'text': 'Parameters'}}, \
-            {'html': 'th', 'attr': {'style': 'text-align: right;'}, 'elem': {'text': 'Size'}}, \
-            {'html': 'th', 'elem': {'text': 'Modified'}}, \
-            {'html': 'th', 'elem': {'text': ''}} \
-        ]}]
-        modelTable = [ \
-            {'html': 'table', 'elem': [ \
-                {'html': 'tbody', 'elem': modelTableRows} \
-            ]} \
-        ]
-        spacer = stringFromCharCode(160, 160)
         for model in models:
             modelID = objectGet(model, 'id')
             modelName = objectGet(model, 'name')
             parameters = objectGet(model, 'parameters')
             size = objectGet(model, 'size')
             modified = datetimeISOParse(objectGet(model, 'modified'))
-            selected = action == 'model' && actionID == modelID
+            isActive = modelID == currentModel
+            inConfig = action == 'config' && actionID == modelID
 
-            # Add the model row
-            selectText = if(selected, 'Cancel', 'Select')
-            selectURL = argsURL(ollamaChatArguments, {'action': if(!selected, 'model'), 'actionID': if(!selected, modelID)})
-            arrayPush(modelTableRows, {'html': 'tr', 'elem': [ \
-                {'html': 'td', 'elem': formsLinkButtonElements(modelID, systemPartial(ollamaChatModelsOnModelSelect, modelID))}, \
-                { \
-                    'html': 'td', \
-                    'attr': {'style': 'text-align: right;'}, \
-                    'elem': {'text': ollamaChatModelsFormatCount(parameters)} \
+            updateFn = systemPartial(ollamaChatModelsOnDownload, modelID)
+            configURL = argsURL(ollamaChatArguments, {'action': 'config', 'actionID': modelID}, false)
+            deleteURL = argsURL(ollamaChatArguments, {'action': 'delete-confirm', 'actionID': modelID}, false)
+            cancelURL = argsURL(ollamaChatArguments, {'action': null, 'actionID': null}, false)
+            inDeleteConfirm = action == 'delete-confirm' && actionID == modelID
+
+            # Info icon link
+            infoLink = { \
+                'html': 'a', \
+                'attr': { \
+                    'href': ollamaChatModelsModelURL(modelName), \
+                    'target': '_blank', 'rel': 'noopener', \
+                    'title': tr(lang, 'view_on_ollama'), \
+                    'style': 'display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: var(--oc-text-2);', \
+                    'onmouseover': ollamaChatHoverOn, \
+                    'onmouseout': ollamaChatHoverOut \
                 }, \
-                { \
-                    'html': 'td', \
-                    'attr': {'style': 'text-align: right;'}, \
-                    'elem': {'text': ollamaChatModelsFormatSize(size)} \
-                }, \
-                {'html': 'td', 'elem': {'text': datetimeISOFormat(modified, true)}}, \
-                [ \
-                    formsLinkElements(selectText, selectURL), \
-                    if(selected, [ \
-                        {'text': spacer + '|' + spacer}, \
-                        formsLinkButtonElements('Delete', systemPartial(ollamaChatModelsOnDelete, args, modelID)), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Update', systemPartial(ollamaChatModelsOnDownload, modelID)), \
-                        {'text': spacer}, \
-                        formsLinkElements('Info', ollamaChatModelsModelURL(modelName)) \
-                    ]) \
+                'elem': ollamaChatSVG([{'svg': 'circle', 'attr': {'cx': '12', 'cy': '12', 'r': '10'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '8', 'x2': '12', 'y2': '12'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '16', 'x2': '12.01', 'y2': '16'}}], '16') \
+            }
+
+            # Config form (shown when inConfig=true)
+            configForm = null
+            if inConfig:
+                # Fetch model's actual parameters from Ollama /api/show
+                modelInfoResponse = systemFetch('getModelInfo?model=' + urlEncodeComponent(modelID))
+                modelInfoData = if(modelInfoResponse != null, jsonParse(modelInfoResponse))
+                modelDefaultCtx = if(modelInfoData != null, objectGet(modelInfoData, 'contextLength'), null)
+                modelMaxCtx = if(modelInfoData != null && objectHas(modelInfoData, 'maxContextLength'), objectGet(modelInfoData, 'maxContextLength'), null)
+
+                # Pre-fill: saved options take priority, otherwise use model's actual default
+                savedNumCtx = if(objectHas(modelOptions, 'num_ctx'), objectGet(modelOptions, 'num_ctx'), '')
+                curNumCtx = if(savedNumCtx != '', savedNumCtx, if(modelDefaultCtx != null, numberToFixed(modelDefaultCtx, 0), ''))
+                curTemp = if(objectHas(modelOptions, 'temperature'), objectGet(modelOptions, 'temperature'), '')
+                curTopP = if(objectHas(modelOptions, 'top_p'), objectGet(modelOptions, 'top_p'), '')
+                curSeed = if(objectHas(modelOptions, 'seed'), objectGet(modelOptions, 'seed'), '')
+
+                inputStyle = 'background: var(--oc-bg-3); border: 1px solid var(--oc-border); border-radius: 8px; color: var(--oc-text); font-size: 0.875rem; padding: 7px 10px; font-family: inherit; outline: none; width: 120px; max-width: 100%;'
+                inputFocus = "this.style.borderColor='var(--oc-accent)';"
+                inputBlur = "this.style.borderColor='var(--oc-border)';"
+                labelStyle = 'display: block; font-size: 0.78rem; font-weight: 600; color: var(--oc-text-2); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.04em;'
+                hintStyle = 'font-size: 0.75rem; color: var(--oc-text-3); margin-bottom: 0.4rem; line-height: 1.4;'
+                fieldStyle = 'margin-bottom: 1.25rem;'
+                chipStyle = 'padding: 2px 8px; border-radius: 5px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.72rem; cursor: pointer; font-family: inherit; margin-right: 4px; margin-bottom: 4px;'
+                chipHover = "this.style.borderColor='var(--oc-accent)';this.style.color='var(--oc-accent)';"
+                chipOut = "this.style.borderColor='var(--oc-border)';this.style.color='var(--oc-text-2)';"
+
+                ctxHint = if(modelDefaultCtx != null, \
+                    'Default: ' + numberToFixed(modelDefaultCtx, 0) + ' tokens' + \
+                    if(modelMaxCtx != null && modelMaxCtx != modelDefaultCtx, \
+                        ' (architecture max: ' + numberToFixed(modelMaxCtx, 0) + ')', ''), \
+                    '')
+
+                configForm = { \
+                    'html': 'div', \
+                    'attr': {'style': 'border-top: 1px solid var(--oc-border); margin-top: 1rem; padding-top: 1rem;'}, \
+                    'elem': [ \
+                        {'html': 'div', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-3); margin-bottom: 1.25rem; line-height: 1.5;'}, 'elem': {'text': 'Configure parameters for this model. Settings apply to all conversations until changed.'}}, \
+                        { \
+                            'html': 'div', 'attr': {'style': fieldStyle}, \
+                            'elem': [ \
+                                {'html': 'label', 'attr': {'for': 'oc-num-ctx', 'style': labelStyle}, 'elem': {'text': tr(lang, 'context_window')}}, \
+                                {'html': 'div', 'attr': {'style': hintStyle}, 'elem': {'text': 'Max tokens processed at once. Larger = more memory but longer context. Default varies by model.'}}, \
+                                {'html': 'div', 'attr': {'style': 'display: flex; flex-wrap: wrap; margin-bottom: 0.5rem;'}, 'elem': [ \
+                                    {'html': 'button', 'attr': {'type': 'button', 'style': chipStyle, 'onmouseover': chipHover, 'onmouseout': chipOut, 'onclick': "document.getElementById('oc-num-ctx').value='2048';"}, 'elem': {'text': '2K'}}, \
+                                    {'html': 'button', 'attr': {'type': 'button', 'style': chipStyle, 'onmouseover': chipHover, 'onmouseout': chipOut, 'onclick': "document.getElementById('oc-num-ctx').value='4096';"}, 'elem': {'text': '4K'}}, \
+                                    {'html': 'button', 'attr': {'type': 'button', 'style': chipStyle, 'onmouseover': chipHover, 'onmouseout': chipOut, 'onclick': "document.getElementById('oc-num-ctx').value='8192';"}, 'elem': {'text': '8K'}}, \
+                                    {'html': 'button', 'attr': {'type': 'button', 'style': chipStyle, 'onmouseover': chipHover, 'onmouseout': chipOut, 'onclick': "document.getElementById('oc-num-ctx').value='16384';"}, 'elem': {'text': '16K'}}, \
+                                    {'html': 'button', 'attr': {'type': 'button', 'style': chipStyle, 'onmouseover': chipHover, 'onmouseout': chipOut, 'onclick': "document.getElementById('oc-num-ctx').value='32768';"}, 'elem': {'text': '32K'}}, \
+                                    {'html': 'button', 'attr': {'type': 'button', 'style': chipStyle, 'onmouseover': chipHover, 'onmouseout': chipOut, 'onclick': "document.getElementById('oc-num-ctx').value='65536';"}, 'elem': {'text': '64K'}}, \
+                                    {'html': 'button', 'attr': {'type': 'button', 'style': chipStyle, 'onmouseover': chipHover, 'onmouseout': chipOut, 'onclick': "document.getElementById('oc-num-ctx').value='131072';"}, 'elem': {'text': '128K'}} \
+                                ]}, \
+                                {'html': 'input', 'attr': {'type': 'number', 'id': 'oc-num-ctx', 'placeholder': 'e.g. 32768', 'value': curNumCtx, 'step': '1', 'min': '512', 'style': inputStyle, 'onfocus': inputFocus, 'onblur': inputBlur}}, \
+                                if(ctxHint != '', {'html': 'div', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3); margin-top: 0.3rem;'}, 'elem': {'text': ctxHint}}) \
+                            ] \
+                        }, \
+                        { \
+                            'html': 'div', 'attr': {'style': fieldStyle}, \
+                            'elem': [ \
+                                {'html': 'label', 'attr': {'for': 'oc-temperature', 'style': labelStyle}, 'elem': {'text': tr(lang, 'temperature')}}, \
+                                {'html': 'div', 'attr': {'style': hintStyle}, 'elem': {'text': 'Controls randomness. 0 = deterministic, 0.8 = balanced (default), 2 = very creative.'}}, \
+                                {'html': 'input', 'attr': {'type': 'number', 'id': 'oc-temperature', 'placeholder': 'e.g. 0.8', 'value': curTemp, 'step': '0.1', 'min': '0', 'max': '2', 'style': inputStyle, 'onfocus': inputFocus, 'onblur': inputBlur}} \
+                            ] \
+                        }, \
+                        { \
+                            'html': 'div', 'attr': {'style': fieldStyle}, \
+                            'elem': [ \
+                                {'html': 'label', 'attr': {'for': 'oc-top-p', 'style': labelStyle}, 'elem': {'text': tr(lang, 'top_p')}}, \
+                                {'html': 'div', 'attr': {'style': hintStyle}, 'elem': {'text': 'Nucleus sampling. 0.9 is a good default. Lower = more focused outputs.'}}, \
+                                {'html': 'input', 'attr': {'type': 'number', 'id': 'oc-top-p', 'placeholder': 'e.g. 0.9', 'value': curTopP, 'step': '0.05', 'min': '0', 'max': '1', 'style': inputStyle, 'onfocus': inputFocus, 'onblur': inputBlur}} \
+                            ] \
+                        }, \
+                        { \
+                            'html': 'div', 'attr': {'style': fieldStyle}, \
+                            'elem': [ \
+                                {'html': 'label', 'attr': {'for': 'oc-seed', 'style': labelStyle}, 'elem': {'text': tr(lang, 'seed')}}, \
+                                {'html': 'div', 'attr': {'style': hintStyle}, 'elem': {'text': 'Fixed number for reproducible outputs. Leave empty for random results each time.'}}, \
+                                {'html': 'input', 'attr': {'type': 'number', 'id': 'oc-seed', 'placeholder': 'e.g. 42', 'value': curSeed, 'step': '1', 'min': '0', 'style': inputStyle, 'onfocus': inputFocus, 'onblur': inputBlur}} \
+                            ] \
+                        }, \
+                        {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem; margin-top: 0.5rem;'}, 'elem': [ \
+                            ollamaChatPrimaryBtn(tr(lang, 'activate_model'), systemPartial(ollamaChatModelsOnActivate, modelID)), \
+                            { \
+                                'html': 'a', \
+                                'attr': { \
+                                    'href': cancelURL, \
+                                    'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.875rem; font-weight: 500;', \
+                                    'onmouseover': ollamaChatHoverBorderOn, \
+                                    'onmouseout': ollamaChatHoverBorderOut \
+                                }, \
+                                'elem': {'text': tr(lang, 'cancel')} \
+                            } \
+                        ]} \
+                    ] \
+                }
+            endif
+
+            elementModelRender({ \
+                'html': 'div', \
+                'attr': {'style': 'background: ' + if(isActive, 'var(--oc-accent-active)', 'var(--oc-bg-2)') + '; border: 1px solid ' + if(inConfig, 'var(--oc-accent)', if(isActive, 'var(--oc-accent)', 'var(--oc-border)')) + '; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.75rem;'}, \
+                'elem': [ \
+                    { \
+                        'html': 'div', \
+                        'attr': {'class': 'oc-model-card-row', 'style': 'display: flex; align-items: center; gap: 1rem;'}, \
+                        'elem': [ \
+                            { \
+                                'html': 'div', \
+                                'attr': {'style': 'flex: 1; min-width: 0;'}, \
+                                'elem': [ \
+                                    {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;'}, 'elem': [ \
+                                        {'html': 'span', 'attr': {'style': 'font-weight: 600; color: var(--oc-text); font-size: 0.95rem;'}, 'elem': {'text': modelID}}, \
+                                        if(isActive, {'html': 'span', 'attr': {'style': 'font-size: 0.7rem; background: var(--oc-accent); color: white; padding: 1px 8px; border-radius: 10px; font-weight: 500;'}, 'elem': {'text': tr(lang, 'active')}}) \
+                                    ]}, \
+                                    {'html': 'div', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-3); display: flex; gap: 1rem;'}, 'elem': [ \
+                                        {'html': 'span', 'elem': {'text': ollamaChatModelsFormatCount(parameters)}}, \
+                                        {'html': 'span', 'elem': {'text': ollamaChatModelsFormatSize(size)}}, \
+                                        {'html': 'span', 'elem': {'text': datetimeISOFormat(modified, true)}} \
+                                    ]} \
+                                ] \
+                            }, \
+                            { \
+                                'html': 'div', \
+                                'attr': {'class': 'oc-model-card-actions', 'style': 'display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0;'}, \
+                                'elem': [ \
+                                    if(!inConfig, { \
+                                        'html': 'a', \
+                                        'attr': { \
+                                            'href': configURL, \
+                                            'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: none; background: var(--oc-accent); color: white; font-size: 0.875rem; font-weight: 500;', \
+                                            'onmouseover': "this.style.background='#0a7a5e';", \
+                                            'onmouseout': "this.style.background=document.documentElement.getAttribute('data-theme')==='light'?'#0d8f6e':'#10a37f';" \
+                                        }, \
+                                        'elem': [ollamaChatSVG(ollamaChatIconCheck, '14'), {'html': 'span', 'elem': {'text': if(isActive, tr(lang, 'reconfigure'), tr(lang, 'use'))}}] \
+                                    }), \
+                                    infoLink, \
+                                    ollamaChatIconBtn(ollamaChatIconRefresh, tr(lang, 'update_model'), updateFn), \
+                                    { \
+                                        'html': 'a', \
+                                        'attr': { \
+                                            'href': if(!inDeleteConfirm, deleteURL, cancelURL), \
+                                            'title': tr(lang, 'delete_model'), \
+                                            'style': 'display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: ' + if(inDeleteConfirm, '#ef4444', 'var(--oc-text-2)') + ';', \
+                                            'onmouseover': "this.style.background='rgba(239,68,68,0.13)';this.style.color='#ef4444';", \
+                                            'onmouseout': "this.style.background='transparent';this.style.color='" + if(inDeleteConfirm, '#ef4444', 'var(--oc-text-2)') + "';" \
+                                        }, \
+                                        'elem': ollamaChatSVG(ollamaChatIconTrash, '16') \
+                                    } \
+                                ] \
+                            } \
+                        ] \
+                    }, \
+                    configForm, \
+                    if(inDeleteConfirm, { \
+                        'html': 'div', \
+                        'attr': {'style': 'border-top: 1px solid rgba(239,68,68,0.4); margin-top: 1rem; padding-top: 1rem;'}, \
+                        'elem': [ \
+                            {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 8px; margin-bottom: 0.6rem;'}, 'elem': [ \
+                                {'html': 'div', 'attr': {'style': 'width: 28px; height: 28px; border-radius: 50%; background: rgba(239,68,68,0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;'}, \
+                                    'elem': ollamaChatSVG(ollamaChatIconTrash, '14')}, \
+                                {'html': 'span', 'attr': {'style': 'font-size: 0.875rem; font-weight: 600; color: #ef4444;'}, 'elem': {'text': 'Delete model'}} \
+                            ]}, \
+                            {'html': 'p', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-3); margin-bottom: 0.75rem; line-height: 1.5;'}, 'elem': {'text': 'This permanently removes the model from disk. This action cannot be undone.'}}, \
+                            {'html': 'p', 'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-2); margin-bottom: 0.4rem;'}, 'elem': [ \
+                                {'text': 'Type '}, \
+                                {'html': 'code', 'attr': {'style': 'background: var(--oc-bg-3); padding: 1px 6px; border-radius: 4px; font-family: monospace; color: #ef4444; font-size: 0.8rem;'}, 'elem': {'text': modelID}}, \
+                                {'text': ' to confirm:'} \
+                            ]}, \
+                            {'html': 'input', 'attr': { \
+                                'type': 'text', 'id': 'oc-del-' + modelID, 'autocomplete': 'off', \
+                                'placeholder': modelID, \
+                                'style': 'width: 100%; max-width: 340px; padding: 7px 12px; background: var(--oc-bg-3); border: 1px solid rgba(239,68,68,0.5); border-radius: 8px; color: var(--oc-text); font-size: 0.875rem; font-family: inherit; outline: none; box-sizing: border-box; margin-bottom: 0.75rem;', \
+                                'onfocus': "this.style.borderColor='#ef4444';", \
+                                'onblur': "this.style.borderColor='rgba(239,68,68,0.5)';" \
+                            }}, \
+                            {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem;'}, 'elem': [ \
+                                { \
+                                    'html': 'button', \
+                                    'attr': {'type': 'button', 'style': 'padding: 8px 16px; border-radius: 8px; border: none; background: #ef4444; color: white; font-size: 0.875rem; font-weight: 500; cursor: pointer; font-family: inherit;', \
+                                        'onmouseover': "this.style.background='#dc2626';", \
+                                        'onmouseout': "this.style.background='#ef4444';"}, \
+                                    'callback': {'click': systemPartial(ollamaChatModelsOnDeleteConfirmed, args, modelID)}, \
+                                    'elem': {'text': 'Delete model'} \
+                                }, \
+                                { \
+                                    'html': 'a', \
+                                    'attr': {'href': cancelURL, 'style': 'display: inline-flex; align-items: center; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--oc-border); color: var(--oc-text-2); font-size: 0.875rem;', \
+                                        'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, \
+                                    'elem': {'text': tr(lang, 'cancel')} \
+                                } \
+                            ]} \
+                        ] \
+                    }) \
                 ] \
-            ]})
+            })
         endfor
-        elementModelRender(modelTable)
     endif
+endfunction
+
+
+# Activate model with options from config form
+async function ollamaChatModelsOnActivate(modelID):
+    numCtx = stringTrim(documentInputValue('oc-num-ctx'))
+    temperature = stringTrim(documentInputValue('oc-temperature'))
+    topP = stringTrim(documentInputValue('oc-top-p'))
+    seed = stringTrim(documentInputValue('oc-seed'))
+
+    options = {}
+    if numCtx != '':
+        objectSet(options, 'num_ctx', numCtx)
+    endif
+    if temperature != '':
+        objectSet(options, 'temperature', temperature)
+    endif
+    if topP != '':
+        objectSet(options, 'top_p', topP)
+    endif
+    if seed != '':
+        objectSet(options, 'seed', seed)
+    endif
+
+    systemFetch({'url': 'setModelOptions', 'body': jsonStringify({'options': options})})
+    systemFetch({'url': 'setModel', 'body': jsonStringify({'model': modelID})})
+    windowSetLocation(argsURL(ollamaChatArguments, {'view': null, 'id': null}, true))
 endfunction
 
 
@@ -181,7 +398,18 @@ async function ollamaChatModelsOnDownloadStop(args, model):
 endfunction
 
 
-# Delete model delete on-click event handler
+# Delete model after user typed the model name to confirm
+async function ollamaChatModelsOnDeleteConfirmed(args, model):
+    typed = stringTrim(documentInputValue('oc-del-' + model))
+    if typed != model:
+        return
+    endif
+    systemFetch({'url': 'deleteModel', 'body': jsonStringify({'model': model})})
+    ollamaChatModelsPage(args)
+endfunction
+
+
+# Delete model on-click event handler
 async function ollamaChatModelsOnDelete(args, model):
     systemFetch({'url': 'deleteModel', 'body': jsonStringify({'model': model})})
     ollamaChatModelsPage(args)
@@ -195,13 +423,15 @@ async function ollamaChatModelsDownloadPage(args):
     filterMonths = objectGet(args, 'filterMonths')
     filterCompatible = objectGet(args, 'filterCompatible')
     sort = objectGet(args, 'sort')
+    lang = objectGet(args, 'lang')
 
-    # Get the system info
+    ollamaChatSidebar(null, lang)
+
+    # Fetch data
     systemInfo = systemFetch('getSystemInfo')
     systemInfo = if(systemInfo != null, jsonParse(systemInfo))
     totalMemory = objectGet(systemInfo, 'memory')
 
-    # Get the downloaded and available models
     availableModels = systemFetch(ollamaChatModelsAvailableURL)
     availableModels = if(availableModels != null, jsonParse(availableModels))
     if !availableModels:
@@ -209,35 +439,56 @@ async function ollamaChatModelsDownloadPage(args):
         return
     endif
 
-    # Render the page title
-    title = 'Ollama Chat - Download'
-    documentSetTitle(title)
-    markdownPrint( \
-        argsLink(ollamaChatArguments, 'Back', {'view': 'models'}, true), \
-        '', \
-        '# ' + markdownEscape(title) \
-    )
+    documentSetTitle('Download Models')
 
-    # Render the filters
-    filterSpacer = stringFromCharCode(160) + '|' + stringFromCharCode(160)
-    markdownPrint( \
-        '**Recent:** ' + \
-            ollamaChatModelsFilterLink('1 month', 1, 'filterMonths', filterMonths) + filterSpacer + \
-            ollamaChatModelsFilterLink('3 months', 3, 'filterMonths', filterMonths) + filterSpacer + \
-            ollamaChatModelsFilterLink('6 month', 6, 'filterMonths', filterMonths) + filterSpacer + \
-            ollamaChatModelsFilterLink('All', 0, 'filterMonths', filterMonths), \
-        '', \
-        '**Show:** ' + \
-            ollamaChatModelsFilterLink('Compatible', true, 'filterCompatible', filterCompatible) + filterSpacer + \
-            ollamaChatModelsFilterLink('All', false, 'filterCompatible', filterCompatible), \
-        '', \
-        '**Sort:** ' + \
-            ollamaChatModelsFilterLink('Downloads', 'Downloads', 'sort', sort) + filterSpacer + \
-            ollamaChatModelsFilterLink('Modified', 'Modified', 'sort', sort) + filterSpacer + \
-            ollamaChatModelsFilterLink('Name', 'Name', 'sort', sort) \
-    )
+    # ── Page header ──
+    elementModelRender({ \
+        'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;'}, \
+        'elem': [ \
+            { \
+                'html': 'a', \
+                'attr': {'href': argsURL(ollamaChatArguments, {'view': 'models'}, false), \
+                    'style': 'display: inline-flex; align-items: center; gap: 5px; font-size: 0.8rem; color: var(--oc-text-3);'}, \
+                'elem': [ollamaChatSVG([{'svg': 'polyline', 'attr': {'points': '15 18 9 12 15 6'}}], '14'), {'html': 'span', 'elem': {'text': 'Models'}}] \
+            }, \
+            {'html': 'h1', 'attr': {'style': 'font-size: 1.25rem; font-weight: 600; color: var(--oc-text); margin: 0; flex: 1;'}, 'elem': {'text': 'Download Models'}} \
+        ] \
+    })
 
-    # Sort the model array
+    # ── Filter chips ──
+    chipActive = 'display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--oc-accent); background: var(--oc-accent-bg); color: var(--oc-accent); font-size: 0.78rem; font-weight: 500; text-decoration: none; white-space: nowrap;'
+    chipInactive = 'display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.78rem; text-decoration: none; white-space: nowrap;'
+    chipHover = "this.style.borderColor='var(--oc-accent)';this.style.color='var(--oc-accent)';"
+    chipOut = "this.style.borderColor='var(--oc-border)';this.style.color='var(--oc-text-2)';"
+
+    elementModelRender({ \
+        'html': 'div', 'attr': {'style': 'display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; align-items: center;'}, \
+        'elem': [ \
+            # Recent filter
+            {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;'}, 'elem': [ \
+                {'html': 'span', 'attr': {'style': 'font-size: 0.72rem; font-weight: 600; color: var(--oc-text-3); text-transform: uppercase; letter-spacing: 0.05em;'}, 'elem': {'text': 'Recent:'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'filterMonths': 1}, false), 'style': if(filterMonths == 1, chipActive, chipInactive), 'onmouseover': if(filterMonths != 1, chipHover), 'onmouseout': if(filterMonths != 1, chipOut)}, 'elem': {'text': '1 month'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'filterMonths': 3}, false), 'style': if(filterMonths == 3, chipActive, chipInactive), 'onmouseover': if(filterMonths != 3, chipHover), 'onmouseout': if(filterMonths != 3, chipOut)}, 'elem': {'text': '3 months'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'filterMonths': 6}, false), 'style': if(filterMonths == 6, chipActive, chipInactive), 'onmouseover': if(filterMonths != 6, chipHover), 'onmouseout': if(filterMonths != 6, chipOut)}, 'elem': {'text': '6 months'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'filterMonths': 0}, false), 'style': if(filterMonths == 0, chipActive, chipInactive), 'onmouseover': if(filterMonths != 0, chipHover), 'onmouseout': if(filterMonths != 0, chipOut)}, 'elem': {'text': 'All time'}} \
+            ]}, \
+            # Show filter
+            {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;'}, 'elem': [ \
+                {'html': 'span', 'attr': {'style': 'font-size: 0.72rem; font-weight: 600; color: var(--oc-text-3); text-transform: uppercase; letter-spacing: 0.05em;'}, 'elem': {'text': 'Show:'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'filterCompatible': true}, false), 'style': if(filterCompatible, chipActive, chipInactive), 'onmouseover': if(!filterCompatible, chipHover), 'onmouseout': if(!filterCompatible, chipOut)}, 'elem': {'text': 'Compatible'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'filterCompatible': false}, false), 'style': if(!filterCompatible, chipActive, chipInactive), 'onmouseover': if(filterCompatible, chipHover), 'onmouseout': if(filterCompatible, chipOut)}, 'elem': {'text': 'All'}} \
+            ]}, \
+            # Sort filter
+            {'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;'}, 'elem': [ \
+                {'html': 'span', 'attr': {'style': 'font-size: 0.72rem; font-weight: 600; color: var(--oc-text-3); text-transform: uppercase; letter-spacing: 0.05em;'}, 'elem': {'text': 'Sort:'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'sort': 'Downloads'}, false), 'style': if(sort == 'Downloads', chipActive, chipInactive), 'onmouseover': if(sort != 'Downloads', chipHover), 'onmouseout': if(sort != 'Downloads', chipOut)}, 'elem': {'text': 'Downloads'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'sort': 'Modified'}, false), 'style': if(sort == 'Modified', chipActive, chipInactive), 'onmouseover': if(sort != 'Modified', chipHover), 'onmouseout': if(sort != 'Modified', chipOut)}, 'elem': {'text': 'Modified'}}, \
+                {'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments, {'sort': 'Name'}, false), 'style': if(sort == 'Name', chipActive, chipInactive), 'onmouseover': if(sort != 'Name', chipHover), 'onmouseout': if(sort != 'Name', chipOut)}, 'elem': {'text': 'Name'}} \
+            ]} \
+        ] \
+    })
+
+    # Sort models
     if sort == 'Downloads':
         models = arraySort(availableModels, systemPartial(ollamaChatModelsSort, 'Downloads'))
     elif sort == 'Name':
@@ -250,8 +501,7 @@ async function ollamaChatModelsDownloadPage(args):
     today = datetimeToday()
     minModified = if(filterMonths == 0, null, datetimeNew(datetimeYear(today), datetimeMonth(today) - filterMonths, datetimeDay(today)))
 
-    # Render the models
-    variantIndent = stringFromCharCode(160, 160, 160, 160)
+    # ── Model cards ──
     for model in models:
         name = objectGet(model, 'name')
         description = objectGet(model, 'description')
@@ -261,8 +511,8 @@ async function ollamaChatModelsDownloadPage(args):
         variants = objectGet(model, 'variants')
         selected = action == 'model' && actionID == name
 
-        # Create the parameter sizes text and compute compatibility
-        parameterSizes = []
+        # Compute compatibility and collect visible variants
+        visibleVariants = []
         anyCompatible = false
         for variant in variants:
             variantParameters = objectGet(variant, 'parameters')
@@ -270,54 +520,113 @@ async function ollamaChatModelsDownloadPage(args):
             anyCompatible = anyCompatible || isCompatible
             objectSet(variant, 'compatible', isCompatible)
             if !filterCompatible || isCompatible:
-                arrayPush(parameterSizes, objectGet(variant, 'size'))
+                arrayPush(visibleVariants, variant)
             endif
         endfor
-        parametersText = arrayJoin(parameterSizes, ', ')
 
         # Filter models
         if (minModified && modified < minModified) || (filterCompatible && !anyCompatible):
             continue
         endif
 
-        # Render the model information
-        markdownPrint( \
-            '## ' + markdownEscape(name), \
-            '', \
-            markdownEscape(description), \
-            '', \
-            '**Parameters:** ' + parametersText + ' \\', \
-            '**Downloads:** ' + ollamaChatModelsFormatCount(downloads) + ' \\', \
-            '**Modified:** ' + modifiedText, \
-            '', \
-            argsLink( \
-                ollamaChatArguments, \
-                if(selected, 'Cancel', 'Download'), {'action': if(!selected, 'model'), 'actionID': if(!selected, name)} \
-            ), \
-            if(!selected, filterSpacer + '[Info](' + ollamaChatModelsModelURL(name) + ')') \
-        )
+        # Param sizes summary
+        paramSizes = []
+        for v in visibleVariants:
+            arrayPush(paramSizes, objectGet(v, 'size'))
+        endfor
+        paramText = arrayJoin(paramSizes, ' · ')
+
+        # Download / Cancel button
+        toggleURL = argsURL(ollamaChatArguments, {'action': if(!selected, 'model'), 'actionID': if(!selected, name)}, false)
+        dlBtnStyle = if(selected, \
+            'display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.85rem; text-decoration: none;', \
+            'display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; border: none; background: var(--oc-accent); color: white; font-size: 0.85rem; font-weight: 500; text-decoration: none;')
+        dlBtnHover = if(selected, ollamaChatHoverBorderOn, "this.style.background='#0a7a5e';")
+        dlBtnOut = if(selected, ollamaChatHoverBorderOut, "this.style.background=document.documentElement.getAttribute('data-theme')==='light'?'#0d8f6e':'#10a37f';")
+
+        # Variant chips (shown when selected)
+        variantSection = null
         if selected:
-            downloadLinks = []
-            for variant, ixVariant in variants:
+            variantChips = []
+            for variant in visibleVariants:
                 modelID = objectGet(variant, 'id')
-                if !filterCompatible || objectGet(variant, 'compatible'):
-                    arrayPush(downloadLinks, {'html': 'p', 'elem': [ \
-                        {'text': variantIndent}, \
-                        formsLinkButtonElements(modelID, systemPartial(ollamaChatModelsOnDownload, modelID)) \
-                    ]})
-                endif
+                varSize = objectGet(variant, 'size')
+                isCompat = objectGet(variant, 'compatible')
+                arrayPush(variantChips, { \
+                    'html': 'button', \
+                    'attr': { \
+                        'type': 'button', \
+                        'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: 8px; border: 1px solid ' + if(isCompat, 'var(--oc-accent)', 'var(--oc-border)') + '; background: ' + if(isCompat, 'var(--oc-accent-bg)', 'transparent') + '; color: ' + if(isCompat, 'var(--oc-accent)', 'var(--oc-text-2)') + '; font-size: 0.85rem; font-weight: 500; cursor: pointer; font-family: inherit;', \
+                        'onmouseover': "this.style.background='var(--oc-accent-bg)';this.style.borderColor='var(--oc-accent)';this.style.color='var(--oc-accent)';", \
+                        'onmouseout': "this.style.background='" + if(isCompat, 'var(--oc-accent-bg)', 'transparent') + "';this.style.borderColor='" + if(isCompat, 'var(--oc-accent)', 'var(--oc-border)') + "';this.style.color='" + if(isCompat, 'var(--oc-accent)', 'var(--oc-text-2)') + "';" \
+                    }, \
+                    'callback': {'click': systemPartial(ollamaChatModelsOnDownload, modelID)}, \
+                    'elem': [ \
+                        ollamaChatSVG(ollamaChatIconDownload, '13'), \
+                        {'html': 'span', 'elem': {'text': varSize}} \
+                    ] \
+                })
             endfor
-            elementModelRender(downloadLinks)
+            variantSection = { \
+                'html': 'div', \
+                'attr': {'style': 'border-top: 1px solid var(--oc-border); margin-top: 0.875rem; padding-top: 0.875rem;'}, \
+                'elem': [ \
+                    {'html': 'div', 'attr': {'style': 'font-size: 0.75rem; font-weight: 600; color: var(--oc-text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;'}, 'elem': {'text': 'Select version to download:'}}, \
+                    {'html': 'div', 'attr': {'style': 'display: flex; flex-wrap: wrap; gap: 0.4rem;'}, 'elem': variantChips} \
+                ] \
+            }
         endif
+
+        elementModelRender({ \
+            'html': 'div', \
+            'attr': {'style': 'background: var(--oc-bg-2); border: 1px solid ' + if(selected, 'var(--oc-accent)', 'var(--oc-border)') + '; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.75rem;'}, \
+            'elem': [ \
+                # Header row: name + buttons
+                { \
+                    'html': 'div', 'attr': {'style': 'display: flex; align-items: flex-start; gap: 0.75rem;'}, \
+                    'elem': [ \
+                        { \
+                            'html': 'div', 'attr': {'style': 'flex: 1; min-width: 0;'}, \
+                            'elem': [ \
+                                {'html': 'div', 'attr': {'style': 'font-size: 0.95rem; font-weight: 600; color: var(--oc-text); margin-bottom: 0.3rem;'}, 'elem': {'text': name}}, \
+                                {'html': 'div', 'attr': {'style': 'font-size: 0.82rem; color: var(--oc-text-2); line-height: 1.4; margin-bottom: 0.4rem;'}, 'elem': {'text': description}}, \
+                                {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.75rem; flex-wrap: wrap;'}, 'elem': [ \
+                                    if(paramText, {'html': 'span', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3);'}, 'elem': {'text': paramText}}), \
+                                    {'html': 'span', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3);'}, 'elem': {'text': '↓ ' + ollamaChatModelsFormatCount(downloads)}}, \
+                                    {'html': 'span', 'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3);'}, 'elem': {'text': modifiedText}} \
+                                ]} \
+                            ] \
+                        }, \
+                        { \
+                            'html': 'div', 'attr': {'style': 'display: flex; gap: 0.35rem; flex-shrink: 0; align-items: flex-start;'}, \
+                            'elem': [ \
+                                { \
+                                    'html': 'a', \
+                                    'attr': {'href': toggleURL, 'style': dlBtnStyle, 'onmouseover': dlBtnHover, 'onmouseout': dlBtnOut}, \
+                                    'elem': if(!selected, \
+                                        [ollamaChatSVG(ollamaChatIconDownload, '14'), {'html': 'span', 'elem': {'text': 'Download'}}], \
+                                        {'text': 'Cancel'} \
+                                    ) \
+                                }, \
+                                { \
+                                    'html': 'a', \
+                                    'attr': { \
+                                        'href': ollamaChatModelsModelURL(name), \
+                                        'target': '_blank', 'rel': 'noopener', \
+                                        'title': 'View on Ollama', \
+                                        'style': 'display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: var(--oc-text-2);', \
+                                        'onmouseover': ollamaChatHoverOn, 'onmouseout': ollamaChatHoverOut \
+                                    }, \
+                                    'elem': ollamaChatSVG([{'svg': 'circle', 'attr': {'cx': '12', 'cy': '12', 'r': '10'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '8', 'x2': '12', 'y2': '12'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '16', 'x2': '12.01', 'y2': '16'}}], '16') \
+                                } \
+                            ] \
+                        } \
+                    ] \
+                }, \
+                variantSection \
+            ] \
+        })
     endfor
-endfunction
-
-
-function ollamaChatModelsFilterLink(text, value, argName, argValue):
-    if value == argValue:
-        return markdownEscape(text)
-    endif
-    return argsLink(ollamaChatArguments, text, {argName: value})
 endfunction
 
 

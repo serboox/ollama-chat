@@ -31,6 +31,9 @@ struct Conversation (ConversationInfo)
     # The conversation's exchanges
     ConversationExchange[] exchanges
 
+    # Thinking mode override: true=on, false=off, omit=auto (use model capability)
+    optional bool thinkingEnabled
+
 
 # A user-model conversation with generating status
 struct ConversationEx (Conversation)
@@ -50,6 +53,18 @@ struct ConversationExchange
 
     # The model's thinking
     optional string thinking
+
+    # The number of tokens used in the prompt (includes full conversation history)
+    optional int promptTokens
+
+    # The number of tokens in the model response
+    optional int responseTokens
+
+    # The context window size used for this exchange
+    optional int contextSize
+
+    # Whether the model supports thinking (detected from capabilities)
+    optional bool modelSupportsThinking
 
 
 # An conversation template info struct
@@ -129,6 +144,9 @@ struct OllamaChatConfig
     # The current model ID
     optional string model
 
+    # The model options (e.g. {"num_ctx": "32768"})
+    optional string{} modelOptions
+
     # The saved conversations
     Conversation[] conversations
 
@@ -192,6 +210,9 @@ action getConversations
     output
         # The current model ID
         optional string model
+
+        # The model options
+        optional string{} modelOptions
 
         # The conversations
         ConversationInfoEx[] conversations
@@ -316,6 +337,9 @@ action startConversation
         # The user prompt
         string user
 
+        # Optional base64-encoded images (for vision models)
+        optional string[] images
+
     output
         # The new conversation identifier
         string id
@@ -392,6 +416,9 @@ action replyConversation
         # The user reply prompt
         string user
 
+        # Optional base64-encoded images (for vision models)
+        optional string[] images
+
     errors
         ConversationBusy
         UnknownConversationID
@@ -456,6 +483,20 @@ action regenerateConversationExchange
         UnknownConversationID
 
 
+# Set thinking mode for a conversation (true=on, false=off)
+action setConversationThinking
+    urls
+        POST
+
+    input
+        string id
+        optional bool enabled
+
+    errors
+        UnknownConversationID
+        ConversationBusy
+
+
 # Get the available models
 action getModels
     urls
@@ -510,3 +551,163 @@ action deleteModel
     input
         # The model ID
         string model
+
+
+# Get info for a specific model (context length, etc.)
+action getModelInfo
+    urls
+        GET
+
+    query
+        # The model ID
+        string model
+
+    output
+        # Effective num_ctx (from model parameters, or Ollama default 2048)
+        int contextLength
+
+        # Model's architectural maximum context (from model weights)
+        optional int maxContextLength
+
+    errors
+        UnknownModel
+
+
+# Clear the current model (deactivate)
+action clearModel
+    urls
+        POST
+
+
+# A single grammar/spelling correction
+struct GrammarChange
+
+    # The original (incorrect) text fragment
+    string original
+
+    # The corrected version
+    string corrected
+
+    # Explanation of the error (in hint language)
+    string explanation
+
+
+# Check grammar, spelling and punctuation using the current model
+action checkGrammar
+    urls
+        POST
+
+    input
+        # Text to check
+        string text
+
+        # Language of the text ("auto" to detect automatically)
+        optional string textLanguage
+
+        # Language for explanations ("auto" = same as text)
+        optional string hintLanguage
+
+    output
+        # Detected or specified language
+        string detectedLanguage
+
+        # Fully corrected text
+        string correctedText
+
+        # List of individual corrections
+        GrammarChange[] changes
+
+    errors
+        NoModel
+        CheckFailed
+
+
+# Translate text using the current model
+action translateText
+    urls
+        POST
+
+    input
+        # Text to translate
+        string text
+
+        # Source language (e.g. "Russian")
+        string fromLang
+
+        # Target language (e.g. "English")
+        string toLang
+
+        # CEFR language level (e.g. "B1", "C1") or omit for auto
+        optional string level
+
+        # Translation style (e.g. "Formal", "IT") or omit for auto
+        optional string style
+
+        # Tone (e.g. "Neutral", "Friendly") or omit for auto
+        optional string tone
+
+    output
+        # Translated text
+        string translation
+
+    errors
+        NoModel
+        TranslationFailed
+
+
+# Read files from a directory and return as text
+action readDirectory
+    urls
+        POST
+
+    input
+        string path
+        optional string ext
+        optional int depth
+
+    output
+        string content
+
+    errors
+        DirectoryNotFound
+
+
+# Execute a curl command and return the response body
+action executeCurl
+    urls
+        POST
+
+    input
+        # The curl command string (e.g. "curl 'https://api.example.com' -H 'Auth: token' -d '{...}'")
+        string command
+
+    output
+        string content
+
+    errors
+        CurlFailed
+
+
+# Fetch URL content and return as text
+action fetchUrl
+    urls
+        POST
+
+    input
+        string url
+
+    output
+        string content
+
+    errors
+        FetchFailed
+
+
+# Set the model options (pass an empty object to clear all options)
+action setModelOptions
+    urls
+        POST
+
+    input
+        # The model options (key-value pairs, e.g. {"num_ctx": "32768"})
+        string{} options

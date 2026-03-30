@@ -10,6 +10,13 @@ include 'ollamaChatUtil.bare'
 # The Ollama Chat conversation page
 async function ollamaChatConversationPage(args):
     id = objectGet(args, 'id')
+    lang = objectGet(args, 'lang')
+
+    # No conversation ID — redirect to home screen (centered input)
+    if id == null:
+        windowSetLocation(argsURL(ollamaChatArguments, {'view': null, 'id': null, 'action': null}, true))
+        return
+    endif
 
     # Fetch the conversation
     if id != null:
@@ -30,50 +37,79 @@ async function ollamaChatConversationPage(args):
         generating = false
     endif
 
-    # Render the floating controls
-    elementModelRender(ollamaChatConversationFloatingElements(args, conversation, generating))
+    # Render the sidebar
+    ollamaChatSidebar(id, lang)
+
+    # Hidden input for image attachment (read by send handlers)
+    elementModelRender({'html': 'input', 'attr': {'type': 'hidden', 'id': 'oc-img-b64', 'value': ''}})
+
+    # Render the bottom input bar (fixed)
+    elementModelRender(ollamaChatConversationInputBarElements(args, conversation, generating))
     documentSetFocus(ollamaChatConversationPromptID)
 
     # Render the chat title
     documentSetTitle(title)
-    if conversation != null && objectGet(args, 'action') == 'title':
-        markdownPrint('', '**Title:**')
-        titleClickFn = systemPartial(ollamaChatConversationOnTitleUpdate, args)
-        cancelClickFn = systemPartial(ollamaChatConversationOnClick, args, null, argsURL(ollamaChatArguments))
-        elementModelRender([ \
-            {'html': 'p', 'elem': formsTextElements(ollamaChatConversationTitleID, title, 50, titleClickFn)}, \
-            {'html': 'p', 'elem': [ \
-                formsLinkButtonElements('Update', titleClickFn), \
-                {'text': stringFromCharCode(160, 160)}, \
-                formsLinkButtonElements('Cancel', cancelClickFn) \
-            ]} \
-        ])
-        documentSetFocus(ollamaChatConversationTitleID)
-    elif conversation != null:
-        markdownPrint('# ' + markdownEscape(title), '', '**Model:** ' + markdownEscape(model))
+    if conversation != null:
+        # Header: title + model name only (edit via modal, no inline form)
+        elementModelRender({'html': 'div', 'attr': {'style': 'margin-bottom: 1rem;'}, 'elem': [ \
+            {'html': 'h1', 'attr': {'style': 'margin: 0 0 0.2rem 0; font-size: 1.2rem; color: var(--oc-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'}, 'elem': {'text': title}}, \
+            {'html': 'div', 'attr': {'style': 'font-size: 0.78rem; color: var(--oc-text-3);'}, 'elem': {'text': model}} \
+        ]})
     endif
 
-    # No conversation yet or empty conversation?
+    # No conversation yet — show template picker if templates exist
     exchanges = objectGet(conversation, 'exchanges')
     if conversation == null || !exchanges:
+        if conversation == null:
+            ollamaChatConversationNewChatArea(args, lang)
+        endif
         return
     endif
 
     # Render the exchanges
     ixExchangeLast = arrayLength(exchanges) - 1
     for exchange, ixExchange in exchanges:
-        elementModelRender([ \
-            {'html': 'h2', 'elem': {'text': 'User:'}}, \
-            { \
-                'html': 'p', \
-                'attr': {'style': 'white-space: pre-wrap;'}, \
+        # User message bubble
+        elementModelRender({ \
+            'html': 'div', \
+            'attr': {'style': 'display: flex; justify-content: flex-end; margin-bottom: 1.25rem;'}, \
+            'elem': { \
+                'html': 'div', \
+                'attr': { \
+                    'style': 'background: var(--oc-bubble); border-radius: 18px; padding: 0.75rem 1rem; max-width: 75%; white-space: pre-wrap; color: var(--oc-text); font-size: 0.95rem; border: 1px solid var(--oc-bubble-border);' \
+                }, \
                 'elem': {'text': objectGet(exchange, 'user')} \
-            }, \
-            {'html': 'h2', 'elem': {'text': 'Model:'}} \
-        ])
+            } \
+        })
+
+        # Model response header
+        elementModelRender({ \
+            'html': 'div', \
+            'attr': {'style': 'display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;'}, \
+            'elem': [ \
+                { \
+                    'html': 'div', \
+                    'attr': { \
+                        'style': 'width: 28px; height: 28px; border-radius: 50%; background: var(--oc-accent); display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 600; color: white; flex-shrink: 0;' \
+                    }, \
+                    'elem': {'text': 'AI'} \
+                }, \
+                { \
+                    'html': 'span', \
+                    'attr': {'style': 'font-size: 0.8rem; color: var(--oc-text-2);'}, \
+                    'elem': {'text': model} \
+                } \
+            ] \
+        })
+
         ollamaChatConversationResponseRenderTop(args, exchange, ixExchange)
         if ixExchange != ixExchangeLast:
             ollamaChatConversationResponseRenderBottom(args, exchange, ixExchange)
+        endif
+
+        # Separator between exchanges (not after last)
+        if ixExchange != ixExchangeLast:
+            elementModelRender({'html': 'div', 'attr': {'style': 'border-top: 1px solid var(--oc-border); margin: 1.25rem 0;'}})
         endif
     endfor
 
@@ -88,6 +124,7 @@ endfunction
 # Helper to render the bottom of Ollama Chat conversation page
 async function ollamaChatConversationPageBottom(args, conversation, generating):
     multiline = objectGet(args, 'multiline')
+    lang = objectGet(args, 'lang')
 
     # Any exchanges?
     isThinking = false
@@ -101,25 +138,39 @@ async function ollamaChatConversationPageBottom(args, conversation, generating):
         # Render the model reply
         ollamaChatConversationResponseRenderBottom(args, lastExchange, ixLastExchange)
 
-        # Compute button on-click functions
-        deleteExchangeFn = systemPartial(ollamaChatConversationOnClick, args, 'deleteConversationExchange')
-        regenerateExchangeFn = systemPartial(ollamaChatConversationOnClick, args, 'regenerateConversationExchange')
-
-        # Render the regenerate and delete links
+        # Render the delete and regenerate buttons below last exchange
+        # Use onclick+fetch+reload for reliability (bare-script callbacks don't re-render the page)
+        convId = objectGet(args, 'id')
         if !generating:
             elementModelRender( \
-                {'html': 'p', 'elem': [ \
-                    formsLinkButtonElements('Delete', deleteExchangeFn), \
-                    {'text': stringFromCharCode(160, 160)}, \
-                    formsLinkButtonElements('Regenerate', regenerateExchangeFn) \
+                {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.25rem; margin-top: 0.75rem;'}, 'elem': [ \
+                    { \
+                        'html': 'button', 'attr': { \
+                            'type': 'button', \
+                            'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.78rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                            'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut, \
+                            'onclick': "fetch('regenerateConversationExchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + convId + "'})}).then(function(){location.reload();});" \
+                        }, \
+                        'elem': [ollamaChatSVG(ollamaChatIconRefresh, '13'), {'html': 'span', 'elem': {'text': tr(lang, 'regenerate')}}] \
+                    }, \
+                    { \
+                        'html': 'button', 'attr': { \
+                            'type': 'button', \
+                            'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.78rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                            'onmouseover': "this.style.borderColor='#ef4444';this.style.color='#ef4444';this.style.background='rgba(239,68,68,0.1)';", \
+                            'onmouseout': "this.style.borderColor='var(--oc-border)';this.style.color='var(--oc-text-2)';this.style.background='transparent';", \
+                            'onclick': "fetch('deleteConversationExchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + convId + "'})}).then(function(){location.reload();});" \
+                        }, \
+                        'elem': [ollamaChatSVG(ollamaChatIconTrash, '13'), {'html': 'span', 'elem': {'text': tr(lang, 'delete')}}] \
+                    } \
                 ]} \
             )
         endif
     endif
 
-    # Render the bottom space
+    # Render the bottom space (for fixed input bar)
     fontSizePx = documentFontSize()
-    bottomSpacePx = if(generating, mathFloor(0.67 * windowHeight() / fontSizePx), if(multiline, 12, 4)) * fontSizePx
+    bottomSpacePx = if(generating, mathFloor(0.67 * windowHeight() / fontSizePx), if(multiline, 18, 12)) * fontSizePx
     bottomElementId = stringSlice(argsURL(ollamaChatArguments, null, false, ollamaChatConversationBottomID), 1)
     elementModelRender([ \
         {'html': 'div', 'attr': {'style': 'height: ' + numberToFixed(bottomSpacePx, ollamaChatConversationSVGPrecision) + 'px'}}, \
@@ -138,19 +189,28 @@ endfunction
 
 # Helper to render the model response top part
 function ollamaChatConversationResponseRenderTop(args, exchange, ixExchange):
+    lang = objectGet(args, 'lang')
+
     # Text view?
     if objectGet(args, 'text'):
         return
     endif
 
-    # Show/hide thinking link?
+    # Show/hide thinking button?
     isThinking = objectHas(exchange, 'thinking')
     if isThinking:
-        if ixExchange == objectGet(args, 'think'):
-            markdownPrint('', argsLink(ollamaChatArguments, 'Hide Thinking', {'think': null}))
-        else:
-            markdownPrint('', argsLink(ollamaChatArguments, 'Show Thinking', {'think': ixExchange}))
-        endif
+        thinkLabel = if(ixExchange == objectGet(args, 'think'), tr(lang, 'hide_thinking'), tr(lang, 'show_thinking'))
+        thinkURL = if(ixExchange == objectGet(args, 'think'), argsURL(ollamaChatArguments, {'think': null}), argsURL(ollamaChatArguments, {'think': ixExchange}))
+        elementModelRender({ \
+            'html': 'a', \
+            'attr': { \
+                'href': thinkURL, \
+                'style': 'display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--oc-border); color: var(--oc-text-2); font-size: 0.78rem; text-decoration: none; margin-bottom: 0.5rem;', \
+                'onmouseover': ollamaChatHoverBorderOn, \
+                'onmouseout': ollamaChatHoverBorderOut \
+            }, \
+            'elem': [ollamaChatSVG([{'svg': 'circle', 'attr': {'cx': '12', 'cy': '12', 'r': '3'}}, {'svg': 'path', 'attr': {'d': 'M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14'}}], '13'), {'html': 'span', 'elem': {'text': thinkLabel}}] \
+        })
     endif
 endfunction
 
@@ -171,6 +231,40 @@ function ollamaChatConversationResponseRenderBottom(args, exchange, ixExchange):
 
     # Render the response
     markdownPrint('', objectGet(exchange, 'model'))
+endfunction
+
+
+# Format token count as compact string (21 → "21", 4096 → "4K", 131072 → "128K")
+function ollamaChatFmtTokens(n):
+    if n >= 1000:
+        return numberToFixed(mathFloor(n / 1000), 0) + 'K'
+    endif
+    return numberToFixed(n, 0)
+endfunction
+
+
+# Helper to render context/token usage info for an exchange
+function ollamaChatConversationTokenInfo(exchange):
+    promptTokens = objectGet(exchange, 'promptTokens')
+    if promptTokens == null:
+        return
+    endif
+    responseTokens = objectGet(exchange, 'responseTokens')
+    responseTokens = if(responseTokens != null, responseTokens, 0)
+    contextSize = objectGet(exchange, 'contextSize')
+    totalTokens = promptTokens + responseTokens
+    if contextSize != null && contextSize > 0:
+        remaining = contextSize - totalTokens
+        pct = mathFloor(1000 * totalTokens / contextSize) / 10
+        tokenInfo = ollamaChatFmtTokens(totalTokens) + ' / ' + ollamaChatFmtTokens(contextSize) + ' tokens (' + numberToFixed(pct, 1) + '% used)'
+    else:
+        tokenInfo = ollamaChatFmtTokens(promptTokens) + ' prompt + ' + ollamaChatFmtTokens(responseTokens) + ' response = ' + ollamaChatFmtTokens(totalTokens) + ' tokens'
+    endif
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'style': 'font-size: 0.75rem; color: var(--oc-text-3); margin-top: 0.5rem;'}, \
+        'elem': {'text': tokenInfo} \
+    })
 endfunction
 
 
@@ -262,6 +356,7 @@ async function ollamaChatConversationOnClick(args, api, url, noSave):
         endif
         windowSetLocation(url)
     else:
+        # Re-render the current conversation page in place
         ollamaChatConversationSavePrompt()
         ollamaChatConversationPage(args)
     endif
@@ -318,8 +413,13 @@ async function ollamaChatConversationOnPrompt(args, message):
 
     # Starting a chat?
     if id == null:
-        # Start the chat
-        startRequest = jsonStringify({'user': prompt})
+        # Start the chat — include image if attached
+        startBody = {'user': prompt}
+        imgB64 = stringTrim(documentInputValue('oc-img-b64'))
+        if imgB64 != '':
+            objectSet(startBody, 'images', [imgB64])
+        endif
+        startRequest = jsonStringify(startBody)
         startResponse = systemFetch({'url': 'startConversation', 'body': startRequest})
         startResponse = if(startResponse != null, jsonParse(startResponse))
         if startResponse == null:
@@ -332,9 +432,31 @@ async function ollamaChatConversationOnPrompt(args, message):
         return
     endif
 
-    # Reply to that chat
-    replyRequest = jsonStringify({'id': id, 'user': prompt})
-    systemFetch({'url': 'replyConversation', 'body': replyRequest})
+    # Check context usage — block if context is >= 90% full
+    if conversation != null:
+        exchanges = objectGet(conversation, 'exchanges')
+        if arrayLength(exchanges):
+            lastEx = arrayGet(exchanges, arrayLength(exchanges) - 1)
+            pt = objectGet(lastEx, 'promptTokens')
+            rt = objectGet(lastEx, 'responseTokens')
+            cs = objectGet(lastEx, 'contextSize')
+            if pt != null && cs != null && cs > 0:
+                usedPct = mathFloor(100 * (pt + if(rt != null, rt, 0)) / cs)
+                if usedPct >= 95:
+                    ollamaChatConversationPage(args)
+                    return
+                endif
+            endif
+        endif
+    endif
+
+    # Reply to that chat — include image if attached
+    replyBody = {'id': id, 'user': prompt}
+    imgB64Reply = stringTrim(documentInputValue('oc-img-b64'))
+    if imgB64Reply != '':
+        objectSet(replyBody, 'images', [imgB64Reply])
+    endif
+    systemFetch({'url': 'replyConversation', 'body': jsonStringify(replyBody)})
 
     # Render the conversation page
     ollamaChatConversationPage(args)
@@ -344,44 +466,45 @@ async function ollamaChatConversationOnPrompt(args, message):
 endfunction
 
 
-# The conversation page floating controls element model
-function ollamaChatConversationFloatingElements(args, conversation, generating):
-    action = objectGet(args, 'action')
-    menuShow = objectGet(args, 'menu')
+# The bottom input bar element model (fixed position, ChatGPT style)
+function ollamaChatConversationInputBarElements(args, conversation, generating):
     multiline = objectGet(args, 'multiline')
+    action = objectGet(args, 'action')
     textView = objectGet(args, 'text')
-    elements = []
+    lang = objectGet(args, 'lang')
 
-    # Compute spacing
-    fontSizePx = documentFontSize()
-    topSpacePx = 2 * fontSizePx
-    borderRadiusPx = 0.5 * fontSizePx
-    menuPadPx = 0.65 * fontSizePx
-    inputPadPx = 0.75 * fontSizePx
-    textPadPx = 0.5 * fontSizePx
-    buttonSize = 2 * fontSizePx
-    topBottomPx = fontSizePx
-    leftRightPx = 2 * fontSizePx
-
-    # Compute button navigation URLs
-    indexURL = argsURL(ollamaChatArguments, null, true)
-    menuURL = argsURL(ollamaChatArguments, {'menu': !menuShow})
-    titleURL = argsURL(ollamaChatArguments, if(action != 'title', {'action': 'title'}))
-    markdownURL = argsURL(ollamaChatArguments, {'text': !textView})
+    # Compute URLs and callbacks
     multilineURL = argsURL(ollamaChatArguments, {'multiline': !multiline})
-
-    # Compute button on-click functions
-    menuClickFn = systemPartial(ollamaChatConversationOnClick, args, null, menuURL)
-    titleClickFn = systemPartial(ollamaChatConversationOnClick, args, null, titleURL)
-    markdownClickFn = systemPartial(ollamaChatConversationOnClick, args, null, markdownURL)
-    deleteClickFn = systemPartial(ollamaChatConversationOnClick, args, 'deleteConversation', indexURL, true)
-    templateClickFn = systemPartial(ollamaChatConversationOnTemplate, conversation)
+    markdownURL = argsURL(ollamaChatArguments, {'text': !textView})
     multilineFn = systemPartial(ollamaChatConversationOnClick, args, null, multilineURL)
+    markdownClickFn = systemPartial(ollamaChatConversationOnClick, args, null, markdownURL)
+    templateClickFn = systemPartial(ollamaChatConversationOnTemplate, conversation)
 
-    # Generate the download URL, if necessary
-    markdownDownloadURL = null
-    markdownFilename = null
-    if conversation != null && !generating && menuShow:
+    # Get the saved session prompt, if any
+    prompt = sessionStorageGet(ollamaChatConversationSessionKey)
+    if prompt != null:
+        sessionStorageRemove(ollamaChatConversationSessionKey)
+    endif
+
+    # Detect if model supports thinking (from last exchange)
+    modelSupportsThinking = false
+    if conversation != null:
+        convExch = objectGet(conversation, 'exchanges')
+        if arrayLength(convExch):
+            lastExc = arrayGet(convExch, arrayLength(convExch) - 1)
+            if objectHas(lastExc, 'modelSupportsThinking'):
+                modelSupportsThinking = objectGet(lastExc, 'modelSupportsThinking')
+            endif
+        endif
+    endif
+    thinkingEnabled = if(conversation != null && objectHas(conversation, 'thinkingEnabled'), objectGet(conversation, 'thinkingEnabled'), null)
+
+    # Build secondary controls (above input, only shown when conversation exists and not generating)
+    secondaryControls = []
+    if conversation != null && !generating:
+        convId = objectGet(args, 'id')
+
+        # Generate download URL
         markdownTitle = objectGet(conversation, 'title')
         markdownParts = ['# ' + markdownEscape(markdownTitle), '', '**Model:** ' + markdownEscape(objectGet(conversation, 'model'))]
         for exchange in objectGet(conversation, 'exchanges'):
@@ -393,124 +516,190 @@ function ollamaChatConversationFloatingElements(args, conversation, generating):
         markdownFilename = regexReplace(regexNew('[^a-z0-9]+'), markdownFilename, '-')
         markdownFilename = regexReplace(regexNew('^-'), markdownFilename, '')
         markdownFilename = regexReplace(regexNew('-$'), markdownFilename, '') + '.md'
-    endif
 
-    # Get the saved session prompt, if any
-    prompt = sessionStorageGet(ollamaChatConversationSessionKey)
-    if prompt != null:
-        sessionStorageRemove(ollamaChatConversationSessionKey)
-    endif
+        # Download link styled as text+icon button
+        downloadAStyle = 'display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--oc-border); background: transparent; color: var(--oc-text-2); font-size: 0.78rem; cursor: pointer; font-family: inherit; text-decoration: none; white-space: nowrap;'
+        downloadHover = "this.style.borderColor='var(--oc-text-3)';this.style.color='var(--oc-text)';this.style.background='var(--oc-input-bar)';"
+        downloadOut = "this.style.borderColor='var(--oc-border)';this.style.color='var(--oc-text-2)';this.style.background='transparent';"
 
-    # The top space
-    arrayPush(elements, { \
-        'html': 'div', \
-        'attr': {'style': 'height: ' + numberToFixed(topSpacePx, ollamaChatConversationSVGPrecision) + 'px'}} \
-    )
-
-    # The menu controls
-    separator = stringFromCharCode(160) + '|' + stringFromCharCode(160)
-    arrayPush(elements, { \
-        'html': 'div', \
-        'attr': { \
-            'style': arrayJoin([ \
-                'align-items: left', \
-                'background-color: #e0e0e0', \
-                'border-radius: ' + numberToFixed(borderRadiusPx, ollamaChatConversationSVGPrecision) + 'px', \
-                'color: black', \
-                'display: flex', \
-                'left: ' + numberToFixed(topBottomPx, ollamaChatConversationSVGPrecision) + 'px', \
-                'padding: ' + numberToFixed(menuPadPx, ollamaChatConversationSVGPrecision) + 'px', \
-                'position: fixed', \
-                'top: ' + numberToFixed(topBottomPx, ollamaChatConversationSVGPrecision) + 'px' \
-            ], '; ') \
-        }, \
-        'elem': [ \
-            formsLinkElements('Back', indexURL), \
-            {'text': separator}, \
-            formsLinkElements('Top', argsURL(ollamaChatArguments, null, false, '_top')), \
-            {'text': separator}, \
-            formsLinkElements('Bottom', argsURL(ollamaChatArguments, null, false, ollamaChatConversationBottomID)), \
-            if(conversation != null && !generating, [ \
-                {'text': separator}, \
-                formsLinkButtonElements(if(menuShow, '<<', '>>'), menuClickFn), \
-                if(menuShow, [ \
-                    {'text': separator}, \
-                    formsLinkButtonElements('Title', titleClickFn), \
-                    {'text': separator}, \
-                    formsLinkButtonElements(if(!textView, 'Text', 'Markdown'), markdownClickFn), \
-                    {'text': separator}, \
-                    { \
-                        'html': 'a', \
-                        'attr': {'href': markdownDownloadURL, 'download': markdownFilename}, \
-                        'elem': {'text': 'Download'} \
+        arrayPush(secondaryControls, { \
+            'html': 'div', \
+            'attr': {'class': 'oc-conv-toolbar', 'style': 'display: flex; gap: 0.35rem; margin-bottom: 0.5rem; justify-content: center; max-width: 760px; margin-left: auto; margin-right: auto; padding: 0 0.5rem; width: 100%; flex-wrap: wrap;'}, \
+            'elem': [ \
+                ollamaChatTextIconBtn(if(!textView, ollamaChatIconType, ollamaChatIconCode), if(!textView, tr(lang, 'plain_text'), tr(lang, 'markdown')), markdownClickFn), \
+                { \
+                    'html': 'a', \
+                    'attr': { \
+                        'href': markdownDownloadURL, \
+                        'download': markdownFilename, \
+                        'style': downloadAStyle, \
+                        'onmouseover': downloadHover, \
+                        'onmouseout': downloadOut \
                     }, \
-                    {'text': separator}, \
-                    formsLinkButtonElements('Template', templateClickFn), \
-                    {'text': separator}, \
-                    formsLinkButtonElements('Delete', deleteClickFn) \
-                ]) \
-            ]) \
-        ] \
-    })
+                    'elem': [ollamaChatSVG(ollamaChatIconDownload, '13'), {'html': 'span', 'elem': {'text': tr(lang, 'download')}}] \
+                }, \
+                ollamaChatTextIconBtn(ollamaChatIconCode, tr(lang, 'save_template'), templateClickFn), \
+                if(modelSupportsThinking, { \
+                    'html': 'button', \
+                    'attr': { \
+                        'type': 'button', \
+                        'style': 'display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid ' + if(thinkingEnabled == false, 'var(--oc-border)', 'var(--oc-accent)') + '; background: ' + if(thinkingEnabled == false, 'transparent', 'var(--oc-accent-bg)') + '; color: ' + if(thinkingEnabled == false, 'var(--oc-text-2)', 'var(--oc-accent)') + '; font-size: 0.78rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                        'title': if(thinkingEnabled == false, 'Enable thinking mode', 'Disable thinking mode'), \
+                        'onclick': "fetch('setConversationThinking',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + convId + "',enabled:" + if(thinkingEnabled == false, 'true', 'false') + "})}).then(function(){location.reload();});" \
+                    }, \
+                    'elem': [ \
+                        ollamaChatSVG(ollamaChatIconBrain, '13'), \
+                        {'html': 'span', 'elem': {'text': if(thinkingEnabled == false, 'Thinking: off', 'Thinking: on')}} \
+                    ] \
+                }) \
+            ] \
+        })
+    endif
 
-    # The prompt controls
-    arrayPush(elements, { \
+    # Check if context is full (blocks sending new messages)
+    contextFull = false
+    if conversation != null:
+        convExchanges = objectGet(conversation, 'exchanges')
+        if arrayLength(convExchanges):
+            lastExCheck = arrayGet(convExchanges, arrayLength(convExchanges) - 1)
+            ptCheck = objectGet(lastExCheck, 'promptTokens')
+            rtCheck = if(objectHas(lastExCheck, 'responseTokens'), objectGet(lastExCheck, 'responseTokens'), 0)
+            csCheck = objectGet(lastExCheck, 'contextSize')
+            if ptCheck != null && csCheck != null && csCheck > 0:
+                contextFull = mathFloor(100 * (ptCheck + rtCheck) / csCheck) >= 95
+            endif
+        endif
+    endif
+
+    # The main input bar
+    inputBar = { \
         'html': 'div', \
         'attr': { \
-            'style': arrayJoin([ \
-                'align-items: ' + if(multiline, 'flex-end', 'center'), \
-                'background-color: #c0c0c0', \
-                'border-radius: ' + numberToFixed(borderRadiusPx, ollamaChatConversationSVGPrecision) + 'px', \
-                'bottom: ' + numberToFixed(topBottomPx, ollamaChatConversationSVGPrecision) + 'px', \
-                'display: flex', \
-                'left: ' + numberToFixed(leftRightPx, ollamaChatConversationSVGPrecision) + 'px', \
-                'padding: ' + numberToFixed(inputPadPx, ollamaChatConversationSVGPrecision) + 'px', \
-                'position: fixed', \
-                'right: ' + numberToFixed(leftRightPx, ollamaChatConversationSVGPrecision) + 'px' \
-            ], '; ') \
+            'data-oc-input-bar': '1', \
+            'style': 'display: flex; flex-direction: column; background: var(--oc-input-bar); border: 1px solid ' + if(contextFull, 'rgba(239,68,68,0.4)', 'var(--oc-border)') + '; border-radius: 16px; padding: 0.5rem 0.6rem 0.5rem 1rem; max-width: 760px; margin: 0 auto; width: 100%; opacity: ' + if(contextFull, '0.6', '1') + ';', \
+            'ondragover': "event.preventDefault();this.style.outline='2px dashed #10a37f';this.style.outlineOffset='2px';", \
+            'ondragleave': "this.style.outline='';this.style.outlineOffset='';", \
+            'ondrop': "event.preventDefault();this.style.outline='';this.style.outlineOffset='';var f=event.dataTransfer.files[0];if(f)ocReadFile(f,'" + ollamaChatConversationPromptID + "');" \
         }, \
         'elem': [ \
-            ollamaChatConversationSVGButton(0.75 * buttonSize, buttonSize, 24, 'M4,6 H20 M4,12 H20 M4,18 H20', 'none', 'none', multilineFn), \
+            { \
+                'html': 'div', 'attr': {'style': 'display: flex; align-items: ' + if(multiline, 'flex-end', 'center') + '; gap: 0.5rem;'}, \
+                'elem': [ \
+                ollamaChatIconBtn(ollamaChatIconMenu, if(multiline, tr(lang, 'multiline_off'), tr(lang, 'multiline_on')), multilineFn), \
             { \
                 'html': if(multiline, 'textarea', 'input'), \
                 'attr': { \
                     'autocomplete': 'off', \
                     'id': ollamaChatConversationPromptID, \
-                    'placeholder': 'Type your message...', \
+                    'placeholder': if(contextFull, 'Context window full — start a new chat', tr(lang, 'message_placeholder') + '  (type @ to attach files, images or URLs)'), \
                     'rows': if(multiline, 8), \
-                    'style': arrayJoin([ \
-                        'background-color: white', \
-                        'border: none', \
-                        'flex: 1', \
-                        'font-size: inherit', \
-                        'font-family: inherit', \
-                        'margin-left: ' + numberToFixed(textPadPx, ollamaChatConversationSVGPrecision) + 'px', \
-                        'margin-right: ' + numberToFixed(textPadPx, ollamaChatConversationSVGPrecision) + 'px', \
-                        'min-width: 0', \
-                        'outline: none', \
-                        'padding: ' + numberToFixed(textPadPx, ollamaChatConversationSVGPrecision) + 'px', \
-                        'resize: none' \
-                    ], '; '), \
+                    'disabled': if(contextFull, 'disabled'), \
+                    'style': 'background: transparent; border: none; flex: 1; font-size: 0.9375rem; font-family: inherit; color: var(--oc-text); outline: none; padding: 0.3rem 0.25rem; min-width: 0; resize: none; line-height: 1.5;', \
                     'type': if(!multiline, 'text'), \
-                    'value': if(!multiline, prompt) \
+                    'value': if(!multiline, prompt), \
+                    'oninput': if(multiline, "this.style.height='auto';this.style.height=Math.min(this.scrollHeight,300)+'px';ocCheckAtMention(this);", "ocCheckAtMention(this);") \
                 }, \
                 'elem': if(multiline && prompt != null, {'text': prompt}), \
-                'callback': if(!multiline && !generating, \
+                'callback': if(!multiline && !generating && !contextFull, \
                     {'keyup': systemPartial(formsTextOnKeyup, systemPartial(ollamaChatConversationOnPrompt, args))} \
                 ) \
             }, \
-            if(!generating, \
-                ollamaChatConversationSVGButton(buttonSize, buttonSize, 24, 'M12,18 V7 M7,12 L12,7 L17,12', 'none', 'white', \
-                    systemPartial(ollamaChatConversationOnPrompt, args)) \
-            ), \
-            if(generating, \
-                ollamaChatConversationSVGButton(buttonSize, buttonSize, 24, 'M8,8 H16 V16 H8 Z', 'black', 'white', \
-                    systemPartial(ollamaChatConversationOnClick, args, 'stopConversation')) \
-            ) \
+            if(!generating && !contextFull, { \
+                'html': 'button', 'attr': { \
+                    'type': 'button', 'title': 'Send message', \
+                    'style': 'display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer; background: var(--oc-text); color: var(--oc-bg); flex-shrink: 0; padding: 0;', \
+                    'onmouseover': "this.style.opacity='0.85';", \
+                    'onmouseout': "this.style.opacity='1';", \
+                    'onclick': "ocInjectFile('" + ollamaChatConversationPromptID + "');" \
+                }, \
+                'callback': {'click': systemPartial(ollamaChatConversationOnPrompt, args)}, \
+                'elem': {'svg': 'svg', 'attr': {'width': '16', 'height': '16', 'viewBox': '0 0 24 24', 'fill': 'none', 'stroke': 'currentColor', 'stroke-width': '2.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round'}, 'elem': ollamaChatIconArrowUp} \
+            }), \
+            if(generating, ollamaChatStopBtn(systemPartial(ollamaChatConversationOnClick, args, 'stopConversation'))) \
         ] \
-    })
+        } \
+    ] \
+    }
 
-    return elements
+    # Token progress bar — built from last exchange data
+    tokenBar = null
+    if conversation != null:
+        exchanges = objectGet(conversation, 'exchanges')
+        if arrayLength(exchanges):
+            lastEx = arrayGet(exchanges, arrayLength(exchanges) - 1)
+            pt = objectGet(lastEx, 'promptTokens')
+            if pt != null:
+                rt = if(objectHas(lastEx, 'responseTokens'), objectGet(lastEx, 'responseTokens'), 0)
+                cs = objectGet(lastEx, 'contextSize')
+                total = pt + rt
+                pct = if(cs != null && cs > 0, mathFloor(1000 * total / cs) / 10, null)
+                barPct = if(pct != null, if(pct > 100, 100, pct), 0)
+                barColor = if(pct == null, '#10a37f', \
+                    if(pct > 90, '#ef4444', \
+                    if(pct > 75, '#f97316', \
+                    if(pct > 50, '#eab308', '#10a37f'))))
+                usedLabel = numberToFixed(pt, 0) + ' prompt + ' + numberToFixed(rt, 0) + ' response = ' + numberToFixed(total, 0)
+                ctxLabel = if(cs != null, ' / ' + numberToFixed(cs, 0), '')
+                pctLabel = if(pct != null, ' (' + numberToFixed(pct, 1) + '%)', '')
+                contextFull = pct != null && pct >= 95
+
+                # Warning row — shown when context is nearly full
+                warningRow = if(contextFull, { \
+                    'html': 'div', \
+                    'attr': {'style': 'max-width: 760px; margin: 0 auto 0.4rem; padding: 0.4rem 0.75rem; width: 100%; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; display: flex; align-items: center; gap: 0.5rem; box-sizing: border-box;'}, \
+                    'elem': [ \
+                        ollamaChatSVG([{'svg': 'path', 'attr': {'d': 'M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '9', 'x2': '12', 'y2': '13'}}, {'svg': 'line', 'attr': {'x1': '12', 'y1': '17', 'x2': '12.01', 'y2': '17'}}], '14'), \
+                        {'html': 'span', 'attr': {'style': 'font-size: 0.78rem; color: #ef4444; flex: 1;'}, 'elem': {'text': 'Context window full. Start a new chat to continue.'}}, \
+                        { \
+                            'html': 'a', \
+                            'attr': {'href': argsURL(ollamaChatArguments, {'view': null, 'id': null, 'action': null}, true), \
+                                'style': 'font-size: 0.78rem; color: #ef4444; font-weight: 600; white-space: nowrap;', \
+                                'onmouseover': "this.style.opacity='0.8';", \
+                                'onmouseout': "this.style.opacity='1';"}, \
+                            'elem': {'text': 'New Chat →'} \
+                        } \
+                    ] \
+                })
+
+                tokenBar = { \
+                    'html': 'div', \
+                    'attr': {'style': 'max-width: 760px; margin: 0 auto 0.6rem; padding: 0 0.5rem; width: 100%;'}, \
+                    'elem': [ \
+                        warningRow, \
+                        { \
+                            'html': 'div', \
+                            'attr': {'style': 'display: flex; justify-content: space-between; align-items: baseline; font-size: 0.72rem; color: var(--oc-text-3); margin-bottom: 0.3rem;'}, \
+                            'elem': [ \
+                                {'html': 'span', 'elem': {'text': usedLabel}}, \
+                                {'html': 'span', 'attr': {'style': 'color: ' + barColor + '; font-weight: 500;'}, 'elem': {'text': numberToFixed(total, 0) + ctxLabel + ' tokens' + pctLabel}} \
+                            ] \
+                        }, \
+                        { \
+                            'html': 'div', \
+                            'attr': {'style': 'height: 5px; background: var(--oc-border); border-radius: 3px; overflow: hidden;'}, \
+                            'elem': { \
+                                'html': 'div', \
+                                'attr': {'style': 'height: 100%; width: ' + numberToFixed(barPct, 1) + '%; background: ' + barColor + '; border-radius: 3px;'} \
+                            } \
+                        } \
+                    ] \
+                }
+            endif
+        endif
+    endif
+
+    return { \
+        'html': 'div', \
+        'attr': { \
+            'class': 'oc-input-bar-wrap', \
+            'style': 'position: fixed; left: 260px; right: 0; bottom: 0; padding: 0.5rem 2rem 1.25rem; background: linear-gradient(transparent, var(--oc-bg) 25%);' \
+        }, \
+        'elem': [ \
+            secondaryControls, \
+            tokenBar, \
+            inputBar \
+        ] \
+    }
 endfunction
 
 
@@ -524,7 +713,8 @@ function ollamaChatConversationSVGButton(width, height, viewSize, symbolPath, sy
                 'background: transparent', \
                 'border: none', \
                 'padding: 0', \
-                'cursor: pointer' \
+                'cursor: pointer', \
+                'flex-shrink: 0' \
             ], '; '), \
             'onmouseover': "this.children[0].style.opacity='" + if(backgroundColor != 'none', '0.8', '0.6') + "';", \
             'onmouseout': "this.children[0].style.opacity='1';" \
@@ -554,7 +744,7 @@ function ollamaChatConversationSVGButton(width, height, viewSize, symbolPath, sy
                     'svg': 'path', \
                     'attr': { \
                         'd': symbolPath, \
-                        'stroke': if(symbolFill == 'none', 'black', 'none'), \
+                        'stroke': if(symbolFill == 'none', 'var(--oc-text)', 'none'), \
                         'fill': symbolFill, \
                         'stroke-width': numberToFixed(0.1 * viewSize) \
                     } \
@@ -563,4 +753,60 @@ function ollamaChatConversationSVGButton(width, height, viewSize, symbolPath, sy
         }, \
         'callback': {'click': callback} \
     }
+endfunction
+
+
+# New chat welcome area — clean, centered, no templates (go to Templates section for those)
+function ollamaChatConversationNewChatArea(args, lang):
+    elementModelRender({ \
+        'html': 'div', \
+        'attr': {'class': 'oc-new-chat-welcome', 'style': 'display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem 1.5rem 1rem; min-height: 40vh; gap: 0.75rem;'}, \
+        'elem': [ \
+            {'html': 'div', 'attr': {'style': 'font-size: 2.5rem; line-height: 1;'}, 'elem': {'text': '🦙'}}, \
+            {'html': 'h2', 'attr': {'style': 'font-size: 1.2rem; font-weight: 600; color: var(--oc-text); margin: 0;'}, 'elem': {'text': 'What can I help you with?'}}, \
+            {'html': 'p', 'attr': {'style': 'font-size: 0.875rem; color: var(--oc-text-3); margin: 0; max-width: 340px; line-height: 1.5;'}, 'elem': {'text': 'Type your message below to start a conversation.'}} \
+        ] \
+    })
+endfunction
+
+
+# Build template tile buttons for new chat area
+function ollamaChatConversationTemplateTiles(templates):
+    tiles = []
+    for template in templates:
+        templateID = objectGet(template, 'id')
+        templateTitle = objectGet(template, 'title')
+        arrayPush(tiles, { \
+            'html': 'button', \
+            'attr': { \
+                'type': 'button', \
+                'class': 'oc-template-tile', \
+                'style': 'display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 20px; border: 1px solid var(--oc-border); background: var(--oc-bg-2); color: var(--oc-text-2); font-size: 0.85rem; cursor: pointer; font-family: inherit; white-space: nowrap;', \
+                'onmouseover': ollamaChatHoverBorderOn, \
+                'onmouseout': ollamaChatHoverBorderOut \
+            }, \
+            'callback': {'click': systemPartial(ollamaChatConversationOnRunTemplate, templateID)}, \
+            'elem': [ollamaChatSVG(ollamaChatIconTemplate, '13'), {'html': 'span', 'elem': {'text': templateTitle}}] \
+        })
+    endfor
+    return tiles
+endfunction
+
+
+# Run a template from new chat area
+async function ollamaChatConversationOnRunTemplate(templateID):
+    templateResponse = systemFetch('getTemplate?id=' + templateID)
+    templateResponse = if(templateResponse != null, jsonParse(templateResponse))
+    if templateResponse == null:
+        return
+    endif
+    if objectGet(templateResponse, 'variables'):
+        windowSetLocation(argsURL(ollamaChatArguments, {'view': 'variables', 'id': templateID}))
+        return
+    endif
+    startResponse = systemFetch({'url': 'startTemplate', 'body': jsonStringify({'id': templateID})})
+    startResponse = if(startResponse != null, jsonParse(startResponse))
+    if startResponse != null:
+        windowSetLocation(argsURL(ollamaChatArguments, {'id': objectGet(startResponse, 'id')}, false, ollamaChatConversationBottomID))
+    endif
 endfunction

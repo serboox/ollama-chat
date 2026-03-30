@@ -7,9 +7,13 @@ include <forms.bare>
 include 'ollamaChatUtil.bare'
 
 
-# The Ollama Chat template variables page
+# ─── Variables fill-in page (when running a template) ─────────────────────────
+
 async function ollamaChatTemplateVariablesPage(args):
     templateID = objectGet(args, 'id')
+    lang = objectGet(args, 'lang')
+
+    ollamaChatSidebar(null, lang)
 
     # Get the template
     templateResponse = systemFetch('getTemplate?id=' + templateID)
@@ -19,64 +23,71 @@ async function ollamaChatTemplateVariablesPage(args):
         return
     endif
 
-    # Render the page title
-    title = 'Variables - ' + objectGet(templateResponse, 'title')
-    documentSetTitle(title)
-    markdownPrint(argsLink(ollamaChatArguments, 'Back', null, true), '', '# ' + markdownEscape(title))
-
-    # Render the variable inputs
+    title = objectGet(templateResponse, 'title')
     variables = objectGet(templateResponse, 'variables')
     submitFn = systemPartial(ollamaChatTemplateVariablesOnSubmit, templateID, variables)
+
+    documentSetTitle(title)
+
+    elementModelRender({ \
+        'html': 'div', 'attr': {'style': 'max-width: 560px;'}, \
+        'elem': [ \
+            # Back link
+            { \
+                'html': 'a', \
+                'attr': {'href': argsURL(ollamaChatArguments, {'view': 'templates'}, false), 'style': 'display: inline-flex; align-items: center; gap: 5px; font-size: 0.8rem; color: var(--oc-text-3); margin-bottom: 1.5rem;'}, \
+                'elem': [ollamaChatSVG([{'svg': 'polyline', 'attr': {'points': '15 18 9 12 15 6'}}], '14'), {'html': 'span', 'elem': {'text': tr(lang, 'manage_templates')}}] \
+            }, \
+            {'html': 'h1', 'attr': {'style': 'font-size: 1.25rem; color: var(--oc-text); margin-bottom: 0.25rem;'}, 'elem': {'text': title}}, \
+            {'html': 'p', 'attr': {'style': 'font-size: 0.85rem; color: var(--oc-text-3); margin-bottom: 1.5rem;'}, 'elem': {'text': 'Fill in the variables to start this template.'}} \
+        ] \
+    })
+
     ixVariableLast = arrayLength(variables) - 1
     for variable, ixVariable in variables:
         name = objectGet(variable, 'name')
         nameID = 'variable-' + name
         label = objectGet(variable, 'label')
-        elementModelRender([ \
-            {'html': 'p', 'elem': {'html': 'b', 'elem': {'text': label}}}, \
-            {'html': 'p', 'elem': formsTextElements(nameID, '', 50, if(ixVariable == ixVariableLast, submitFn))} \
-        ])
+        elementModelRender({ \
+            'html': 'div', 'attr': {'style': 'margin-bottom: 1rem;'}, \
+            'elem': [ \
+                {'html': 'label', 'attr': {'for': nameID, 'style': 'display: block; font-size: 0.8rem; font-weight: 600; color: var(--oc-text-2); margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.04em;'}, 'elem': {'text': label}}, \
+                {'html': 'input', 'attr': {'type': 'text', 'id': nameID, 'autocomplete': 'off', 'style': 'width: 100%; padding: 8px 12px; background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 8px; color: var(--oc-text); font-size: 0.9rem; font-family: inherit; outline: none; box-sizing: border-box;', 'onfocus': "this.style.borderColor='var(--oc-accent)';", 'onblur': "this.style.borderColor='var(--oc-border)';"}, \
+                    'callback': if(ixVariable == ixVariableLast, {'keyup': systemPartial(formsTextOnKeyup, submitFn)})} \
+            ] \
+        })
         if ixVariable == 0:
             documentSetFocus(nameID)
         endif
     endfor
 
-    # Render the submit button
-    elementModelRender([ \
-        {'html': 'p', 'elem': formsLinkButtonElements('Start Conversation', submitFn)} \
-    ])
+    elementModelRender({'html': 'div', 'attr': {'style': 'margin-top: 1.5rem;'}, 'elem': [ollamaChatPrimaryBtn('Start Conversation', submitFn)]})
 endfunction
 
 
 async function ollamaChatTemplateVariablesOnSubmit(templateID, variables):
-    # Get the variable values
     variableValues = {}
     for variable in variables:
         name = objectGet(variable, 'name')
-        nameID = 'variable-' + name
-        objectSet(variableValues, name, stringTrim(documentInputValue(nameID)))
+        objectSet(variableValues, name, stringTrim(documentInputValue('variable-' + name)))
     endfor
-
-    # Start the conversation
-    startRequest = {'id': templateID, 'variables': variableValues}
-    startResponse = systemFetch({'url': 'startTemplate', 'body': jsonStringify(startRequest)})
+    startResponse = systemFetch({'url': 'startTemplate', 'body': jsonStringify({'id': templateID, 'variables': variableValues})})
     startResponse = if(startResponse != null, jsonParse(startResponse))
-    if startResponse == null:
-        return
+    if startResponse != null:
+        windowSetLocation(argsURL(ollamaChatArguments, {'view': 'chat', 'id': objectGet(startResponse, 'id')}))
     endif
-    id = objectGet(startResponse, 'id')
-
-    # Navigate to the conversation page
-    windowSetLocation(argsURL(ollamaChatArguments, {'view': 'chat', 'id': id}))
 endfunction
 
 
-# The Ollama Chat template page
+# ─── Template editor page ──────────────────────────────────────────────────────
+
 async function ollamaChatTemplatePage(args):
     templateID = objectGet(args, 'id')
     action = objectGet(args, 'action')
     actionID = objectGet(args, 'actionID')
-    spacer = stringFromCharCode(160, 160)
+    lang = objectGet(args, 'lang')
+
+    ollamaChatSidebar(null, lang)
 
     # Get the template
     templateResponse = systemFetch('getTemplate?id=' + templateID)
@@ -86,200 +97,262 @@ async function ollamaChatTemplatePage(args):
         return
     endif
 
-    # Render the page title
     title = objectGet(template, 'title')
-    documentSetTitle(title)
-    markdownPrint( \
-        argsLink(ollamaChatArguments, 'Back', null, true), \
-        '', \
-        '# ' + markdownEscape(title) \
-    )
-    if action == 'title':
-        titleClickFn = systemPartial(ollamaChatTemplateOnTitle, template)
-        elementModelRender([ \
-            {'html': 'p', 'elem': formsTextElements(ollamaChatTemplateInputID, title, 50, titleClickFn)}, \
-            {'html': 'p', 'elem': [ \
-                formsLinkElements('Cancel', argsURL(ollamaChatArguments)), \
-                {'text': spacer + '|' + spacer}, \
-                formsLinkButtonElements('Update', titleClickFn) \
-            ]} \
-        ])
-        documentSetFocus(ollamaChatTemplateInputID)
-    else:
-        markdownPrint('', argsLink(ollamaChatArguments, 'Edit', {'action': 'title'}))
-    endif
-
-    # Render the template name
-    markdownPrint('', '## Template Name')
     name = objectGet(template, 'name')
-    if action == 'name':
-        nameClickFn = systemPartial(ollamaChatTemplateOnName, template)
-        nameRemoveFn = systemPartial(ollamaChatTemplateOnNameRemove, template)
-        elementModelRender([ \
-            {'html': 'p', 'elem': formsTextElements(ollamaChatTemplateInputID, name, 50, nameClickFn)}, \
-            {'html': 'p', 'elem': [ \
-                formsLinkElements('Cancel', argsURL(ollamaChatArguments)), \
-                {'text': spacer + '|' + spacer}, \
-                formsLinkButtonElements('Update', nameClickFn), \
-                {'text': spacer}, \
-                formsLinkButtonElements('Remove', nameRemoveFn) \
-            ]} \
-        ])
-        documentSetFocus(ollamaChatTemplateInputID)
+    variables = objectGet(template, 'variables')
+    prompts = objectGet(template, 'prompts')
+
+    documentSetTitle(title)
+
+    # Shared styles
+    cardStyle = 'background: var(--oc-bg-2); border: 1px solid var(--oc-border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.6rem;'
+    sectionHeaderStyle = 'font-size: 0.78rem; font-weight: 600; color: var(--oc-text-2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 8px;'
+    inputStyle = 'width: 100%; padding: 8px 12px; background: var(--oc-bg-3); border: 1px solid var(--oc-border); border-radius: 8px; color: var(--oc-text); font-size: 0.9rem; font-family: inherit; outline: none; box-sizing: border-box;'
+    inputFocus = "this.style.borderColor='var(--oc-accent)';"
+    inputBlur = "this.style.borderColor='var(--oc-border)';"
+
+    # ── Page header ──
+    elementModelRender({ \
+        'html': 'div', 'attr': {'style': 'max-width: 700px;'}, \
+        'elem': [ \
+            # Back link
+            { \
+                'html': 'a', \
+                'attr': {'href': argsURL(ollamaChatArguments, {'view': 'templates'}, false), 'style': 'display: inline-flex; align-items: center; gap: 5px; font-size: 0.8rem; color: var(--oc-text-3); margin-bottom: 1.5rem;'}, \
+                'elem': [ollamaChatSVG([{'svg': 'polyline', 'attr': {'points': '15 18 9 12 15 6'}}], '14'), {'html': 'span', 'elem': {'text': tr(lang, 'manage_templates')}}] \
+            }, \
+            # Title row
+            { \
+                'html': 'div', 'attr': {'style': 'display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem;'}, \
+                'elem': [ \
+                    { \
+                        'html': 'div', 'attr': {'style': 'flex: 1; min-width: 0;'}, \
+                        'elem': if(action == 'title', \
+                            # Title edit form
+                            [ \
+                                {'html': 'input', 'attr': {'type': 'text', 'id': ollamaChatTemplateInputID, 'value': title, 'style': 'font-size: 1.25rem; font-weight: 600; ' + inputStyle, 'onfocus': inputFocus, 'onblur': inputBlur}, \
+                                    'callback': {'keyup': systemPartial(formsTextOnKeyup, systemPartial(ollamaChatTemplateOnTitle, template))}}, \
+                                {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem; margin-top: 0.5rem;'}, 'elem': [ \
+                                    ollamaChatPrimaryBtn(tr(lang, 'update'), systemPartial(ollamaChatTemplateOnTitle, template)), \
+                                    { \
+                                        'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments), 'style': 'display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--oc-border); color: var(--oc-text-2); font-size: 0.875rem;', \
+                                            'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, \
+                                        'elem': {'text': tr(lang, 'cancel')} \
+                                    } \
+                                ]} \
+                            ], \
+                            # Title display
+                            [ \
+                                {'html': 'h1', 'attr': {'style': 'font-size: 1.25rem; color: var(--oc-text); margin: 0 0 0.2rem;'}, 'elem': {'text': title}}, \
+                                {'html': 'div', 'attr': {'style': 'font-size: 0.78rem; color: var(--oc-text-3);'}, 'elem': {'text': numberToFixed(arrayLength(prompts)) + ' prompt(s)' + if(variables != null, ', ' + numberToFixed(arrayLength(variables)) + ' variable(s)', '')}} \
+                            ] \
+                        ) \
+                    }, \
+                    if(action != 'title', { \
+                        'html': 'div', 'attr': {'style': 'display: flex; gap: 0.35rem; flex-shrink: 0;'}, \
+                        'elem': [ \
+                            ollamaChatPrimaryBtn(tr(lang, 'run'), systemPartial(ollamaChatIndexOnRunTemplate, templateID)), \
+                            ollamaChatIconBtn(ollamaChatIconEdit, tr(lang, 'edit_title'), systemPartial(ollamaChatTemplateOnNavAction, 'title', null)) \
+                        ] \
+                    }) \
+                ] \
+            } \
+        ] \
+    })
+
+    # ── Prompts section ──
+    elementModelRender({'html': 'div', 'attr': {'style': 'max-width: 700px;'}, 'elem': [ \
+        { \
+            'html': 'div', 'attr': {'style': sectionHeaderStyle}, \
+            'elem': [ \
+                ollamaChatSVG([{'svg': 'path', 'attr': {'d': 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'}}], '14'), \
+                {'html': 'span', 'elem': {'text': 'Prompts'}}, \
+                {'html': 'span', 'attr': {'style': 'font-weight: 400; color: var(--oc-text-3); text-transform: none; letter-spacing: 0;'}, 'elem': {'text': '— run in sequence when the template starts'}} \
+            ] \
+        } \
+    ]})
+
+    if prompts:
+        for prompt, ixPrompt in prompts:
+            promptID = stringNew(ixPrompt)
+            isEditing = action == 'prompt' && actionID == promptID
+            elementModelRender({ \
+                'html': 'div', 'attr': {'style': 'max-width: 700px; ' + cardStyle}, \
+                'elem': [ \
+                    # Prompt header row
+                    { \
+                        'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.5rem; margin-bottom: ' + if(isEditing, '0.75rem', '0') + ';'}, \
+                        'elem': [ \
+                            {'html': 'span', 'attr': {'style': 'font-size: 0.72rem; font-weight: 600; color: var(--oc-accent); text-transform: uppercase; letter-spacing: 0.06em; flex: 1;'}, 'elem': {'text': 'Prompt ' + (ixPrompt + 1)}}, \
+                            if(!isEditing, [ \
+                                ollamaChatIconBtn(ollamaChatIconEdit, 'Edit', systemPartial(ollamaChatTemplateOnNavAction, 'prompt', promptID)), \
+                                ollamaChatIconBtn([{'svg': 'path', 'attr': {'d': 'M18 15l-6-6-6 6'}}], tr(lang, 'move_up'), systemPartial(ollamaChatTemplateOnPromptMove, template, ixPrompt, false)), \
+                                ollamaChatIconBtn([{'svg': 'path', 'attr': {'d': 'M6 9l6 6 6-6'}}], tr(lang, 'move_down'), systemPartial(ollamaChatTemplateOnPromptMove, template, ixPrompt, true)), \
+                                ollamaChatIconBtnDanger(ollamaChatIconTrash, 'Remove', systemPartial(ollamaChatTemplateOnPromptRemove, template, ixPrompt)) \
+                            ]) \
+                        ] \
+                    }, \
+                    # Prompt body
+                    if(isEditing, \
+                        [ \
+                            { \
+                                'html': 'textarea', \
+                                'attr': {'id': ollamaChatTemplateInputID, 'rows': '8', 'autocomplete': 'off', \
+                                    'style': inputStyle + ' resize: vertical;', \
+                                    'onfocus': inputFocus, 'onblur': inputBlur}, \
+                                'elem': {'text': prompt} \
+                            }, \
+                            {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem; margin-top: 0.75rem;'}, 'elem': [ \
+                                ollamaChatPrimaryBtn(tr(lang, 'update'), systemPartial(ollamaChatTemplateOnPromptUpdate, template, ixPrompt)), \
+                                { \
+                                    'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments), 'style': 'display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--oc-border); color: var(--oc-text-2); font-size: 0.875rem;', \
+                                        'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, \
+                                    'elem': {'text': tr(lang, 'cancel')} \
+                                } \
+                            ]} \
+                        ], \
+                        { \
+                            'html': 'div', 'attr': {'style': 'font-size: 0.875rem; color: var(--oc-text-2); white-space: pre-wrap; line-height: 1.55; max-height: 5em; overflow: hidden; position: relative;'}, \
+                            'elem': {'text': prompt} \
+                        } \
+                    ) \
+                ] \
+            })
+            if isEditing:
+                documentSetFocus(ollamaChatTemplateInputID)
+            endif
+        endfor
     else:
-        markdownPrint( \
-            '', \
-            if(name != null, '**Name:** ' + markdownEscape(name), 'The template is unnamed'), \
-            '', \
-            argsLink(ollamaChatArguments, 'Edit', {'action': 'name'}) \
-        )
+        elementModelRender({'html': 'div', 'attr': {'style': 'max-width: 700px; color: var(--oc-text-3); font-style: italic; font-size: 0.875rem; padding: 0.5rem 0; margin-bottom: 0.5rem;'}, 'elem': {'text': 'No prompts yet.'}})
     endif
 
-    # Template variables
-    markdownPrint( \
-        '', \
-        '## Variables', \
-        '', \
-        'Variables are used within the template title and prompts like so: `{{variableName}}`' \
-    )
-    variables = objectGet(template, 'variables')
+    elementModelRender({'html': 'div', 'attr': {'style': 'max-width: 700px; margin-bottom: 2rem;'}, 'elem': [ \
+        ollamaChatAddBtn(ollamaChatIconPlus, 'Add Prompt', systemPartial(ollamaChatTemplateOnPromptAdd, template)) \
+    ]})
+
+    # ── Variables section ──
+    elementModelRender({'html': 'div', 'attr': {'style': 'max-width: 700px;'}, 'elem': [ \
+        { \
+            'html': 'div', 'attr': {'style': sectionHeaderStyle}, \
+            'elem': [ \
+                ollamaChatSVG([{'svg': 'path', 'attr': {'d': 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z'}}, {'svg': 'polyline', 'attr': {'points': '14 2 14 8 20 8'}}], '14'), \
+                {'html': 'span', 'elem': {'text': 'Variables'}}, \
+                {'html': 'span', 'attr': {'style': 'font-weight: 400; color: var(--oc-text-3); text-transform: none; letter-spacing: 0;'}, 'elem': {'text': '— use as {{VarName}} in prompts'}} \
+            ] \
+        } \
+    ]})
+
     if variables != null:
         for variable, ixVariable in variables:
             varName = objectGet(variable, 'name')
             varLabel = objectGet(variable, 'label')
             varID = stringNew(ixVariable)
-            markdownPrint('', '### Variable #' + (ixVariable + 1))
-            if action == 'variable' && actionID == varID:
-                elementModelRender([ \
-                    {'html': 'p', 'elem': {'html': 'b', 'elem': {'text': 'Name:'}}}, \
-                    {'html': 'p', 'elem': formsTextElements(ollamaChatTemplateInputID, varName, 50, nameClickFn)}, \
-                    {'html': 'p', 'elem': {'html': 'b', 'elem': {'text': 'Label:'}}}, \
-                    {'html': 'p', 'elem': formsTextElements(ollamaChatTemplateInputID2, varLabel, 50, nameClickFn)}, \
-                    {'html': 'p', 'elem': [ \
-                        formsLinkElements('Cancel', argsURL(ollamaChatArguments)), \
-                        {'text': spacer + '|' + spacer}, \
-                        formsLinkButtonElements('Update', systemPartial(ollamaChatTemplateOnVariableUpdate, template, ixVariable)), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Remove', systemPartial(ollamaChatTemplateOnVariableRemove, template, ixVariable)), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Up', systemPartial(ollamaChatTemplateOnVariableMove, template, ixVariable)), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Down', systemPartial(ollamaChatTemplateOnVariableMove, template, ixVariable, true)) \
-                    ]} \
-                ])
+            isEditingVar = action == 'variable' && actionID == varID
+            elementModelRender({ \
+                'html': 'div', 'attr': {'style': 'max-width: 700px; ' + cardStyle}, \
+                'elem': [ \
+                    { \
+                        'html': 'div', 'attr': {'style': 'display: flex; align-items: center; gap: 0.5rem; margin-bottom: ' + if(isEditingVar, '0.75rem', '0') + ';'}, \
+                        'elem': [ \
+                            {'html': 'span', 'attr': {'style': 'font-size: 0.72rem; font-weight: 600; color: var(--oc-accent); text-transform: uppercase; letter-spacing: 0.06em;'}, 'elem': {'text': '{{' + varName + '}}'}}, \
+                            {'html': 'span', 'attr': {'style': 'flex: 1; font-size: 0.8rem; color: var(--oc-text-3); margin-left: 4px;'}, 'elem': if(!isEditingVar, {'text': varLabel})}, \
+                            if(!isEditingVar, [ \
+                                ollamaChatIconBtn(ollamaChatIconEdit, 'Edit', systemPartial(ollamaChatTemplateOnNavAction, 'variable', varID)), \
+                                ollamaChatIconBtn([{'svg': 'path', 'attr': {'d': 'M18 15l-6-6-6 6'}}], tr(lang, 'move_up'), systemPartial(ollamaChatTemplateOnVariableMove, template, ixVariable, false)), \
+                                ollamaChatIconBtn([{'svg': 'path', 'attr': {'d': 'M6 9l6 6 6-6'}}], tr(lang, 'move_down'), systemPartial(ollamaChatTemplateOnVariableMove, template, ixVariable, true)), \
+                                ollamaChatIconBtnDanger(ollamaChatIconTrash, 'Remove', systemPartial(ollamaChatTemplateOnVariableRemove, template, ixVariable)) \
+                            ]) \
+                        ] \
+                    }, \
+                    if(isEditingVar, \
+                        [ \
+                            {'html': 'label', 'attr': {'for': ollamaChatTemplateInputID, 'style': 'display: block; font-size: 0.78rem; color: var(--oc-text-3); margin-bottom: 0.3rem;'}, 'elem': {'text': 'Variable name (used in prompts as {{Name}})'}}, \
+                            {'html': 'input', 'attr': {'type': 'text', 'id': ollamaChatTemplateInputID, 'value': varName, 'style': inputStyle + ' margin-bottom: 0.75rem;', 'onfocus': inputFocus, 'onblur': inputBlur}}, \
+                            {'html': 'label', 'attr': {'for': ollamaChatTemplateInputID2, 'style': 'display: block; font-size: 0.78rem; color: var(--oc-text-3); margin-bottom: 0.3rem;'}, 'elem': {'text': 'Label shown to user when filling in'}}, \
+                            {'html': 'input', 'attr': {'type': 'text', 'id': ollamaChatTemplateInputID2, 'value': varLabel, 'style': inputStyle + ' margin-bottom: 0.75rem;', 'onfocus': inputFocus, 'onblur': inputBlur}}, \
+                            {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem;'}, 'elem': [ \
+                                ollamaChatPrimaryBtn(tr(lang, 'update'), systemPartial(ollamaChatTemplateOnVariableUpdate, template, ixVariable)), \
+                                { \
+                                    'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments), 'style': 'display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--oc-border); color: var(--oc-text-2); font-size: 0.875rem;', \
+                                        'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, \
+                                    'elem': {'text': tr(lang, 'cancel')} \
+                                } \
+                            ]} \
+                        ] \
+                    ) \
+                ] \
+            })
+            if isEditingVar:
                 documentSetFocus(ollamaChatTemplateInputID)
-            else:
-                markdownPrint( \
-                    '', \
-                    '**Name:** ' + markdownEscape(varName), \
-                    '', \
-                    '**Label:** ' + markdownEscape(varLabel), \
-                    '', \
-                    argsLink(ollamaChatArguments, 'Edit', {'action': 'variable', 'actionID': varID}) \
-                )
             endif
         endfor
     else:
-        markdownPrint('', 'The template has no variables.')
+        elementModelRender({'html': 'div', 'attr': {'style': 'max-width: 700px; color: var(--oc-text-3); font-style: italic; font-size: 0.875rem; padding: 0.5rem 0; margin-bottom: 0.5rem;'}, 'elem': {'text': 'No variables. Add one to parameterize your prompts.'}})
     endif
-    elementModelRender([ \
-        {'html': 'p', 'elem': formsLinkButtonElements('Add', systemPartial(ollamaChatTemplateOnVariableAdd, template))} \
-    ])
 
-    # Template prompts
-    markdownPrint('', '## Prompts')
-    prompts = objectGet(template, 'prompts')
-    if prompts:
-        for prompt, ixPrompt in prompts:
-            promptID = stringNew(ixPrompt)
-            markdownPrint('', '### Prompt #' + (ixPrompt + 1))
-            if action == 'prompt' && actionID == promptID:
-                elementModelRender([ \
-                    {'html': 'p', 'elem': { \
-                        'html': 'textarea', \
-                        'attr': { \
-                            'autocomplete': 'off', \
-                            'id': ollamaChatTemplateInputID, \
-                            'rows': 8, \
-                            'style': arrayJoin([ \
-                                'background-color: white', \
-                                'font-size: inherit', \
-                                'font-family: inherit', \
-                                'padding: 0.5em', \
-                                'resize: none', \
-                                'width: calc(100% - 1em)' \
-                            ], '; ') \
-                        }, \
-                        'elem': {'text': prompt} \
-                    }}, \
-                    {'html': 'p', 'elem': [ \
-                        formsLinkElements('Cancel', argsURL(ollamaChatArguments)), \
-                        {'text': spacer + '|' + spacer}, \
-                        formsLinkButtonElements('Update', systemPartial(ollamaChatTemplateOnPromptUpdate, template, ixPrompt)), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Remove', systemPartial(ollamaChatTemplateOnPromptRemove, template, ixPrompt)), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Up', systemPartial(ollamaChatTemplateOnPromptMove, template, ixPrompt)), \
-                        {'text': spacer}, \
-                        formsLinkButtonElements('Down', systemPartial(ollamaChatTemplateOnPromptMove, template, ixPrompt, true)) \
-                    ]} \
-                ])
-                documentSetFocus(ollamaChatTemplateInputID)
-            else:
-                elementModelRender([ \
-                    {'html': 'p', 'attr': {'style': 'white-space: pre-wrap;'}, 'elem': {'text': prompt}}, \
-                    {'html': 'p', 'elem': [ \
-                        formsLinkElements('Edit', argsURL(ollamaChatArguments, {'action': 'prompt', 'actionID': promptID})) \
-                    ]} \
-                ])
-            endif
-        endfor
-    else:
-        markdownPrint('', 'The template has no prompts.')
-    endif
-    elementModelRender([ \
-        {'html': 'p', 'elem': formsLinkButtonElements('Add', systemPartial(ollamaChatTemplateOnPromptAdd, template))} \
-    ])
+    elementModelRender({'html': 'div', 'attr': {'style': 'max-width: 700px; margin-bottom: 2rem;'}, 'elem': [ \
+        ollamaChatAddBtn(ollamaChatIconPlus, 'Add Variable', systemPartial(ollamaChatTemplateOnVariableAdd, template)) \
+    ]})
+
+    # ── Command name (advanced, collapsed by default) ──
+    elementModelRender({'html': 'div', 'attr': {'style': 'max-width: 700px; margin-bottom: 2rem;'}, 'elem': [ \
+        { \
+            'html': 'div', 'attr': {'style': 'font-size: 0.78rem; color: var(--oc-text-3); margin-bottom: 0.5rem;'}, \
+            'elem': {'text': 'Command name for /do (optional): ' + if(name != null, name, 'not set')} \
+        }, \
+        if(action != 'name', \
+            ollamaChatIconBtn(ollamaChatIconEdit, 'Edit command name', systemPartial(ollamaChatTemplateOnNavAction, 'name', null)), \
+            [ \
+                {'html': 'input', 'attr': {'type': 'text', 'id': ollamaChatTemplateInputID, 'value': if(name != null, name, ''), 'placeholder': 'e.g. my-template', 'style': inputStyle + ' max-width: 260px; margin-bottom: 0.5rem;', 'onfocus': inputFocus, 'onblur': inputBlur}}, \
+                {'html': 'div', 'attr': {'style': 'display: flex; gap: 0.5rem;'}, 'elem': [ \
+                    ollamaChatPrimaryBtn(tr(lang, 'update'), systemPartial(ollamaChatTemplateOnName, template)), \
+                    { \
+                        'html': 'a', 'attr': {'href': argsURL(ollamaChatArguments), 'style': 'display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--oc-border); color: var(--oc-text-2); font-size: 0.875rem;', \
+                            'onmouseover': ollamaChatHoverBorderOn, 'onmouseout': ollamaChatHoverBorderOut}, \
+                        'elem': {'text': tr(lang, 'cancel')} \
+                    }, \
+                    if(name != null, ollamaChatTextIconBtnDanger(ollamaChatIconTrash, 'Remove', systemPartial(ollamaChatTemplateOnNameRemove, template))) \
+                ]} \
+            ] \
+        ) \
+    ]})
 endfunction
 
 
-# The Ollama Chat template editor title input IDs
+# Navigate to edit action without reload
+function ollamaChatTemplateOnNavAction(action, actionID):
+    windowSetLocation(argsURL(ollamaChatArguments, {'action': action, 'actionID': actionID}))
+endfunction
+
+
+# The Ollama Chat template editor input IDs
 ollamaChatTemplateInputID = 'ollama-chat-template-input'
 ollamaChatTemplateInputID2 = 'ollama-chat-template-input2'
 
 
 async function ollamaChatTemplateOnTitle(template):
-    # Update the template title
     title = stringTrim(documentInputValue(ollamaChatTemplateInputID))
     if title:
         objectSet(template, 'title', title)
         systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
     endif
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments))
 endfunction
 
 
 async function ollamaChatTemplateOnName(template):
-    # Update the template name
     name = stringTrim(documentInputValue(ollamaChatTemplateInputID))
     if name:
         objectSet(template, 'name', name)
         systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
     endif
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments))
 endfunction
 
 
 async function ollamaChatTemplateOnNameRemove(template):
-    # Remove the template name
     objectDelete(template, 'name')
     systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments))
 endfunction
 
@@ -290,21 +363,15 @@ async function ollamaChatTemplateOnVariableAdd(template):
         variables = []
         objectSet(template, 'variables', variables)
     endif
-
-    # Add the new variable
     arrayPush(variables, {'name': 'NewVariable', 'label': 'New Variable'})
     ixVariable = arrayLength(variables) - 1
     systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments, {'action': 'variable', 'actionID': stringNew(ixVariable)}))
 endfunction
 
 
 async function ollamaChatTemplateOnVariableUpdate(template, ixVariable):
     variable = arrayGet(objectGet(template, 'variables'), ixVariable)
-
-    # Update the template name
     varName = stringTrim(documentInputValue(ollamaChatTemplateInputID))
     varLabel = stringTrim(documentInputValue(ollamaChatTemplateInputID2))
     if varName:
@@ -316,31 +383,23 @@ async function ollamaChatTemplateOnVariableUpdate(template, ixVariable):
     if varName || varLabel:
         systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
     endif
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments))
 endfunction
 
 
 async function ollamaChatTemplateOnVariableRemove(template, ixVariable):
     variables = objectGet(template, 'variables')
-
-    # Remove the variable
     arrayDelete(variables, ixVariable)
     if !arrayLength(variables):
         objectDelete(template, 'variables')
     endif
     systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments))
 endfunction
 
 
 async function ollamaChatTemplateOnVariableMove(template, ixVariable, isDown):
     variables = objectGet(template, 'variables')
-
-    # Move the variable
     ixVariableNew = ixVariable + if(isDown, 1, -1)
     if ixVariableNew < 0 || ixVariableNew >= arrayLength(variables):
         return
@@ -349,56 +408,40 @@ async function ollamaChatTemplateOnVariableMove(template, ixVariable, isDown):
     arraySet(variables, ixVariable, arrayGet(variables, ixVariableNew))
     arraySet(variables, ixVariableNew, temp)
     systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments, {'action': 'variable', 'actionID': stringNew(ixVariableNew)}))
 endfunction
 
 
 async function ollamaChatTemplateOnPromptAdd(template):
     prompts = objectGet(template, 'prompts')
-
-    # Add the new prompt
     arrayPush(prompts, 'New prompt')
     ixPrompt = arrayLength(prompts) - 1
     systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments, {'action': 'prompt', 'actionID': stringNew(ixPrompt)}))
 endfunction
 
 
 async function ollamaChatTemplateOnPromptUpdate(template, ixPrompt):
     prompts = objectGet(template, 'prompts')
-
-    # Update the prompt
     prompt = stringTrim(documentInputValue(ollamaChatTemplateInputID))
     if prompt:
         arraySet(prompts, ixPrompt, prompt)
         systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
     endif
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments))
 endfunction
 
 
 async function ollamaChatTemplateOnPromptRemove(template, ixPrompt):
     prompts = objectGet(template, 'prompts')
-
-    # Remove the prompt
     arrayDelete(prompts, ixPrompt)
     systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments))
 endfunction
 
 
 async function ollamaChatTemplateOnPromptMove(template, ixPrompt, isDown):
     prompts = objectGet(template, 'prompts')
-
-    # Move the prompt
     ixPromptNew = ixPrompt + if(isDown, 1, -1)
     if ixPromptNew < 0 || ixPromptNew >= arrayLength(prompts):
         return
@@ -407,7 +450,5 @@ async function ollamaChatTemplateOnPromptMove(template, ixPrompt, isDown):
     arraySet(prompts, ixPrompt, arrayGet(prompts, ixPromptNew))
     arraySet(prompts, ixPromptNew, temp)
     systemFetch({'url': 'updateTemplate', 'body': jsonStringify(template)})
-
-    # Navigate back to template editor
     windowSetLocation(argsURL(ollamaChatArguments, {'action': 'prompt', 'actionID': stringNew(ixPromptNew)}))
 endfunction

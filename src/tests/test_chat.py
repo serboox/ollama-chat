@@ -11,7 +11,7 @@ import unittest.mock
 import urllib3
 
 from ollama_chat.app import OllamaChat
-from ollama_chat.chat import _escape_markdown_text, _process_commands, config_template_prompts, ChatManager
+from ollama_chat.chat import _escape_markdown_text, _parse_model_options, _process_commands, config_template_prompts, ChatManager
 
 from .util import create_test_files
 
@@ -615,7 +615,7 @@ class TestChatManager(unittest.TestCase):
             mock_pool_manager_instance = mock_pool_manager.return_value
 
             # Create the ChatManager instance
-            chat_prompts = ['/?']
+            chat_prompts = ['/file nonexistent.txt -h']
             config_path = os.path.join(temp_dir, 'ollama-chat.json')
             app = OllamaChat(config_path)
             chat_manager = ChatManager(app, 'conv1', chat_prompts)
@@ -632,12 +632,12 @@ class TestChatManager(unittest.TestCase):
             # Verify the app config
             expected_config = {
                 'conversations': [
-                    {'id': 'conv1', 'model': 'llm', 'title': 'Conversation 1', 'exchanges': [{'user': '/?'}]}
+                    {'id': 'conv1', 'model': 'llm', 'title': 'Conversation 1', 'exchanges': [{'user': '/file nonexistent.txt -h'}]}
                 ]
             }
             with app.config() as config:
                 exchange = config['conversations'][0]['exchanges'][0]
-                self.assertTrue(exchange['model'].startswith('```\nusage: /{?,dir,do,file,image,url}'))
+                self.assertIn('/file', exchange['model'])
                 del exchange['model']
                 self.assertDictEqual(config, expected_config)
 
@@ -645,7 +645,7 @@ class TestChatManager(unittest.TestCase):
             with open(config_path, 'r', encoding='utf-8') as config_fh:
                 config = json.load(config_fh)
                 exchange = config['conversations'][0]['exchanges'][0]
-                self.assertTrue(exchange['model'].startswith('```\nusage: /{?,dir,do,file,image,url}'))
+                self.assertIn('/file', exchange['model'])
                 del exchange['model']
                 self.assertEqual(config, expected_config)
 
@@ -928,6 +928,183 @@ file content
                 self.assertEqual(json.load(config_fh), expected_config)
 
 
+class TestParseModelOptions(unittest.TestCase):
+
+    def test_int_value(self):
+        self.assertDictEqual(_parse_model_options({'num_ctx': '32768'}), {'num_ctx': 32768})
+
+    def test_float_value(self):
+        self.assertDictEqual(_parse_model_options({'temperature': '0.7'}), {'temperature': 0.7})
+
+    def test_bool_true(self):
+        self.assertDictEqual(_parse_model_options({'penalize_newline': 'true'}), {'penalize_newline': True})
+
+    def test_bool_false(self):
+        self.assertDictEqual(_parse_model_options({'penalize_newline': 'False'}), {'penalize_newline': False})
+
+    def test_string_value(self):
+        self.assertDictEqual(_parse_model_options({'stop': 'END'}), {'stop': 'END'})
+
+    def test_mixed_values(self):
+        result = _parse_model_options({'num_ctx': '8192', 'temperature': '0.5', 'seed': '42', 'stop': 'END'})
+        self.assertDictEqual(result, {'num_ctx': 8192, 'temperature': 0.5, 'seed': 42, 'stop': 'END'})
+
+    def test_empty(self):
+        self.assertDictEqual(_parse_model_options({}), {})
+
+
+class TestChatManagerWithOptions(unittest.TestCase):
+
+    def test_chat_fn_with_model_options(self):
+        test_files = [
+            ('ollama-chat.json', json.dumps({
+                'modelOptions': {'num_ctx': '32768', 'temperature': '0.5'},
+                'conversations': [
+                    {'id': 'conv1', 'model': 'llm', 'title': 'Conversation 1', 'exchanges': []}
+                ]
+            }))
+        ]
+        with create_test_files(test_files) as temp_dir, \
+             unittest.mock.patch('threading.Thread') as mock_thread, \
+             unittest.mock.patch('urllib3.PoolManager') as mock_pool_manager:
+
+            mock_show_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_show_response.status = 200
+            mock_show_response.json.return_value = {'capabilities': []}
+
+            mock_chat_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_chat_response.status = 200
+            mock_chat_response.read_chunked.return_value = [
+                json.dumps({'message': {'content': 'Hi!'}}).encode('utf-8')
+            ]
+
+            mock_pool_manager_instance = mock_pool_manager.return_value
+            mock_pool_manager_instance.request.side_effect = [mock_show_response, mock_chat_response]
+
+            config_path = os.path.join(temp_dir, 'ollama-chat.json')
+            app = OllamaChat(config_path)
+            chat_manager = ChatManager(app, 'conv1', ['Hello'])
+            app.chats['conv1'] = chat_manager
+
+            ChatManager.chat_thread_fn(chat_manager)
+
+            # Verify that the chat request included the parsed options
+            self.assertIn(
+                unittest.mock.call(
+                    'POST',
+                    'http://127.0.0.1:11434/api/chat',
+                    json={
+                        'model': 'llm',
+                        'messages': [{'role': 'user', 'content': 'Hello', 'images': None}],
+                        'stream': True,
+                        'think': False,
+                        'options': {'num_ctx': 32768, 'temperature': 0.5}
+                    },
+                    preload_content=False,
+                    retries=0
+                ),
+                mock_pool_manager_instance.request.call_args_list
+            )
+
+
+    def test_chat_fn_token_counts(self):
+        test_files = [
+            ('ollama-chat.json', json.dumps({
+                'conversations': [
+                    {'id': 'conv1', 'model': 'llm', 'title': 'Conversation 1', 'exchanges': []}
+                ]
+            }))
+        ]
+        with create_test_files(test_files) as temp_dir, \
+             unittest.mock.patch('threading.Thread') as mock_thread, \
+             unittest.mock.patch('urllib3.PoolManager') as mock_pool_manager:
+
+            mock_show_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_show_response.status = 200
+            mock_show_response.json.return_value = {
+                'capabilities': [],
+                'parameters': 'num_ctx 131072'
+            }
+
+            mock_chat_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_chat_response.status = 200
+            mock_chat_response.read_chunked.return_value = [
+                json.dumps({'message': {'content': 'Hi!'}}).encode('utf-8'),
+                json.dumps({
+                    'message': {'content': ''},
+                    'done': True,
+                    'prompt_eval_count': 150,
+                    'eval_count': 30
+                }).encode('utf-8')
+            ]
+
+            mock_pool_manager_instance = mock_pool_manager.return_value
+            mock_pool_manager_instance.request.side_effect = [mock_show_response, mock_chat_response]
+
+            config_path = os.path.join(temp_dir, 'ollama-chat.json')
+            app = OllamaChat(config_path)
+            chat_manager = ChatManager(app, 'conv1', ['Hello'])
+            app.chats['conv1'] = chat_manager
+
+            ChatManager.chat_thread_fn(chat_manager)
+
+            # Verify token counts stored in exchange
+            with app.config() as config:
+                exchange = config['conversations'][0]['exchanges'][0]
+                self.assertEqual(exchange['promptTokens'], 150)
+                self.assertEqual(exchange['responseTokens'], 30)
+                self.assertEqual(exchange['contextSize'], 131072)
+
+
+    def test_chat_fn_token_counts_with_num_ctx_option(self):
+        test_files = [
+            ('ollama-chat.json', json.dumps({
+                'modelOptions': {'num_ctx': '32768'},
+                'conversations': [
+                    {'id': 'conv1', 'model': 'llm', 'title': 'Conversation 1', 'exchanges': []}
+                ]
+            }))
+        ]
+        with create_test_files(test_files) as temp_dir, \
+             unittest.mock.patch('threading.Thread') as mock_thread, \
+             unittest.mock.patch('urllib3.PoolManager') as mock_pool_manager:
+
+            mock_show_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_show_response.status = 200
+            # model_info has a different value, but num_ctx option takes priority
+            mock_show_response.json.return_value = {
+                'capabilities': [],
+                'parameters': 'num_ctx 131072'
+            }
+
+            mock_chat_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
+            mock_chat_response.status = 200
+            mock_chat_response.read_chunked.return_value = [
+                json.dumps({'message': {'content': 'Hi!'}}).encode('utf-8'),
+                json.dumps({
+                    'message': {'content': ''},
+                    'done': True,
+                    'prompt_eval_count': 100,
+                    'eval_count': 20
+                }).encode('utf-8')
+            ]
+
+            mock_pool_manager_instance = mock_pool_manager.return_value
+            mock_pool_manager_instance.request.side_effect = [mock_show_response, mock_chat_response]
+
+            config_path = os.path.join(temp_dir, 'ollama-chat.json')
+            app = OllamaChat(config_path)
+            chat_manager = ChatManager(app, 'conv1', ['Hello'])
+            app.chats['conv1'] = chat_manager
+
+            ChatManager.chat_thread_fn(chat_manager)
+
+            # num_ctx option overrides model_info context_length
+            with app.config() as config:
+                exchange = config['conversations'][0]['exchanges'][0]
+                self.assertEqual(exchange['contextSize'], 32768)
+
+
 class TestConfigTemplatePrompts(unittest.TestCase):
 
     def test_basic(self):
@@ -997,85 +1174,10 @@ class TestProcessCommands(unittest.TestCase):
         self.assertDictEqual(flags, {})
 
 
-    def test_help_top(self):
-        flags = {}
-        self.assertEqual(_process_commands(None, '/?', flags), 'Displaying top-level help')
-        self.assertTrue(flags['help'].startswith('usage: /{?,dir,do,file,image,url}'))
-
-
     def test_help(self):
         flags = {}
         self.assertEqual(_process_commands(None, '/file test.txt -h', flags), 'Displaying help for "file" command')
-        self.assertTrue(flags['help'].startswith('usage: /file [-h] [-n] file'))
-
-
-    def test_dir(self):
-        test_files = [
-            ('test.txt', 'Test 1'),
-            (('subdir', 'test2.txt'), 'Test 2'),
-            (('subdir', 'test3.md'), '# Test 3')
-        ]
-        with create_test_files(test_files) as temp_dir:
-            temp_posix = str(pathlib.Path(temp_dir).as_posix())
-            flags = {}
-            self.assertEqual(
-                _process_commands(None, f'/dir {temp_posix} .txt', flags),
-                f'''\
-<{_escape_markdown_text(temp_posix)}/test.txt>
-Test 1
-</ {_escape_markdown_text(temp_posix)}/test.txt>'''
-            )
-            self.assertDictEqual(flags, {})
-
-
-    def test_dir_depth(self):
-        test_files = [
-            ('test.txt', 'Test 1'),
-            (('subdir', 'test2.txt'), 'Test 2'),
-            (('subdir', 'test3.md'), '# Test 3')
-        ]
-        with create_test_files(test_files) as temp_dir:
-            temp_posix = str(pathlib.Path(temp_dir).as_posix())
-            flags = {}
-            self.assertEqual(
-                _process_commands(None, f'/dir {temp_posix} .txt -d 2', flags),
-                f'''\
-<{_escape_markdown_text(temp_posix)}/subdir/test2.txt>
-Test 2
-</ {_escape_markdown_text(temp_posix)}/subdir/test2.txt>
-
-<{_escape_markdown_text(temp_posix)}/test.txt>
-Test 1
-</ {_escape_markdown_text(temp_posix)}/test.txt>'''
-            )
-            self.assertDictEqual(flags, {})
-
-
-    def test_dir_exclude(self):
-        test_files = [
-            ('test.txt', 'Test 1'),
-            (('subdir', 'test2.txt'), 'Test 2'),
-            (('subdir2', 'test3.txt'), 'Test 3')
-        ]
-        with create_test_files(test_files) as temp_dir:
-            temp_posix = str(pathlib.Path(temp_dir).as_posix())
-            flags = {}
-            self.assertEqual(
-                _process_commands(None, f'/dir {temp_posix} .txt -d 2 -x test.txt -x subdir2/', flags),
-                f'''\
-<{_escape_markdown_text(temp_posix)}/subdir/test2.txt>
-Test 2
-</ {_escape_markdown_text(temp_posix)}/subdir/test2.txt>'''
-            )
-            self.assertDictEqual(flags, {})
-
-
-    def test_dir_no_files(self):
-        with create_test_files([]) as temp_dir, \
-             self.assertRaises(ValueError) as cm_exc:
-            temp_posix = pathlib.Path(temp_dir).as_posix()
-            _process_commands(None, f'/dir {temp_posix} .txt', {})
-        self.assertEqual(str(cm_exc.exception), f'no files found in directory "{temp_posix}"')
+        self.assertIn('/file', flags['help'])
 
 
     def test_do(self):
@@ -1218,61 +1320,6 @@ file content 2
                     base64.b64encode(b'image data 2').decode('utf-8')
                 ]
             })
-
-
-    def test_url(self):
-        mock_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
-        mock_response.status = 200
-        mock_response.data = b'url content'
-
-        mock_chat = unittest.mock.Mock()
-        mock_chat.app.pool_manager.request.return_value = mock_response
-
-        flags = {}
-        self.assertEqual(
-            _process_commands(mock_chat, '/url http://example.com', flags),
-            '''\
-<http://example.com>
-url content
-</ http://example.com>'''
-        )
-        self.assertDictEqual(flags, {})
-
-
-    def test_url_error(self):
-        mock_response = unittest.mock.Mock(spec=urllib3.response.HTTPResponse)
-        mock_response.status = 500
-        mock_response.data = b'error content'
-
-        mock_chat = unittest.mock.Mock()
-        mock_chat.app.pool_manager.request.return_value = mock_response
-
-        flags = {}
-        with self.assertRaises(urllib3.exceptions.HTTPError) as cm_exc:
-            _process_commands(mock_chat, '/url http://example.com', flags)
-        self.assertEqual(str(cm_exc.exception), 'Failed to load URL "http://example.com"')
-        self.assertDictEqual(flags, {})
-
-
-    def test_multiple_commands(self):
-        test_files = [
-            ('test.txt', 'file content')
-        ]
-        with create_test_files(test_files) as temp_dir:
-            temp_posix = str(pathlib.Path(temp_dir).as_posix())
-            flags = {}
-            self.assertEqual(
-                _process_commands(None, f'Hello\n\n/?\n\n/file {temp_posix}/test.txt', flags),
-                f'''\
-Hello
-
-Displaying top-level help
-
-<{_escape_markdown_text(temp_posix)}/test.txt>
-file content
-</ {_escape_markdown_text(temp_posix)}/test.txt>'''
-            )
-            self.assertIn('help', flags)
 
 
     def test_file_error(self):

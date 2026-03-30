@@ -6,14 +6,11 @@ ollama-chat command-line script main module
 """
 
 import argparse
-import json
 import os
 import sys
 import threading
 import webbrowser
 
-from schema_markdown import encode_query_string
-import urllib3
 import waitress
 
 from .app import OllamaChat
@@ -35,14 +32,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser(**argument_parser_args)
     parser.add_argument('-c', metavar='FILE', dest='config',
                         help='the configuration file (default is "$HOME/ollama-chat.json")')
-    parser.add_argument('-m', metavar='MESSAGE', dest='message',
-                        help='start a conversation')
-    parser.add_argument('-t', metavar='TEMPLATE', dest='template',
-                        help='start a template')
-    parser.add_argument('-l', metavar='MODEL', dest='model',
-                        help='the model name (default is current model)')
-    parser.add_argument('-v', nargs=2, action='append', metavar=('VAR', 'VALUE'), dest='template_vars', default = [],
-                        help='the template variables')
     parser.add_argument('-p', metavar='N', dest='port', type=int, default=8080,
                         help='the application port (default is 8080)')
     parser.add_argument('-x', dest='xorigin', action='store_true', default=False,
@@ -74,69 +63,10 @@ def main(argv=None):
     # Construct the URL
     host = '127.0.0.1'
     url = f'http://{host}:{args.port}/'
-    browser_url = url
-
-    # Conversation command?
-    if args.message:
-
-        # Start the conversation
-        request_input = {'user': args.message}
-        if args.model:
-            request_input['model'] = args.model
-        if args.backend:
-            request_bytes = json.dumps(request_input).encode('utf-8')
-            _, _, response_bytes = application.request('POST', '/startConversation', wsgi_input=request_bytes)
-            response = json.loads(response_bytes.decode('utf-8'))
-        else:
-            try:
-                response_obj = urllib3.request('POST', f'{url}startConversation', json=request_input, retries=0)
-                try:
-                    if response_obj.status != 200:
-                        raise urllib3.exceptions.HTTPError(f'startConversation failed ({response.status})')
-                    response = response_obj.json()
-                finally:
-                    response_obj.close()
-            except:
-                response = {'error': 'UnexpectedError', 'message': 'Failed to start conversation'}
-        if 'error' in response:
-            parser.error(response.get('message') or response["error"])
-
-        # Update the browser URL
-        message_args = encode_query_string({'var': {'vView': "'chat'", 'vId': f"'{response['id']}'"}})
-        browser_url = f'{url}#{message_args}&chat-bottom'
-
-    # Template command?
-    elif args.template:
-
-        # Start the template
-        request_input = {'id': args.template, 'variables': dict(args.template_vars)}
-        if args.model:
-            request_input['model'] = args.model
-        if args.backend:
-            request_bytes = json.dumps(request_input).encode('utf-8')
-            _, _, response_bytes = application.request('POST', '/startTemplate', wsgi_input=request_bytes)
-            response = json.loads(response_bytes.decode('utf-8'))
-        else:
-            try:
-                response_obj = urllib3.request('POST', f'{url}startTemplate', json=request_input, retries=0)
-                try:
-                    if response_obj.status != 200:
-                        raise urllib3.exceptions.HTTPError(f'startTemplate failed ({response.status})')
-                    response = response_obj.json()
-                finally:
-                    response_obj.close()
-            except:
-                response = {'error': 'UnexpectedError', 'message': f'Failed to start template "{args.template}"'}
-        if 'error' in response:
-            parser.error(response.get('message') or response["error"])
-
-        # Update the browser URL
-        template_args = encode_query_string({'var': {'vView': "'chat'", 'vId': f"'{response['id']}'"}})
-        browser_url = f'{url}#{template_args}&chat-bottom'
 
     # Launch the web browser on a thread (it may block)
     if args.browser:
-        webbrowser_thread = threading.Thread(target=webbrowser.open, args=(browser_url,))
+        webbrowser_thread = threading.Thread(target=webbrowser.open, args=(url,))
         webbrowser_thread.daemon = True
         webbrowser_thread.start()
 
