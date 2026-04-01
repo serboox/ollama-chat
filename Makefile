@@ -23,7 +23,7 @@ GHPAGES_RSYNC_ARGS := --exclude='models/models.json'
 
 
 help:
-	@echo "            [run|test-app]"
+	@echo "            [run|test-app|venv-rebuild]"
 
 
 doc:
@@ -41,6 +41,12 @@ commit: test-app
 test-app: $(DEFAULT_VENV_BUILD)
 	$(DEFAULT_VENV_BIN)/bare -x -m src/ollama_chat/static/*.bare src/ollama_chat/static/test/*.bare
 	$(DEFAULT_VENV_BIN)/bare -d -m src/ollama_chat/static/test/runTests.bare$(if $(TEST), -v vUnittestTest "'$(TEST)'")
+
+
+.PHONY: venv-rebuild
+venv-rebuild:
+	rm -f $(DEFAULT_VENV_BUILD)
+	$(MAKE) $(DEFAULT_VENV_BUILD)
 
 
 .PHONY: run
